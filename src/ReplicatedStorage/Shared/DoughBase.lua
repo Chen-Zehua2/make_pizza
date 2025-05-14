@@ -29,26 +29,41 @@ function DoughBase.new(params)
 	-- Convert to DoughBase
 	setmetatable(self, DoughBase)
 
+	-- Override the options with dough-specific options
+	-- Add combine option specifically for dough
+	local SliceSystem = require(ReplicatedStorage.Shared.SliceSystem)
+	local CombineSystem = require(ReplicatedStorage.Shared.CombineSystem)
+	self.options = {
+		{
+			text = "Slice",
+			color = Color3.fromRGB(255, 156, 156), -- Red color for slice
+			callback = function()
+				SliceSystem.startSlicing(self, getmetatable(self))
+			end,
+		},
+		{
+			text = "Flatten",
+			color = Color3.fromRGB(156, 156, 255), -- Blue color for flatten
+			callback = function()
+				self:flatten()
+			end,
+		},
+		{
+			text = "Combine",
+			color = Color3.fromRGB(156, 255, 156), -- Green color for combine
+			callback = function()
+				CombineSystem.startCombining(self)
+			end,
+		},
+	}
+
 	return self
 end
 
--- Override or add any dough-specific methods here
--- For example, we can add specific behaviors for dough
-
--- Add a method to flatten the dough (just as an example)
+-- Keep flatten method for backward compatibility and clean inheritance
 function DoughBase:flatten(amount)
-	if not self.instance then
-		return
-	end
-
-	amount = amount or 0.5 -- Default flatten by 50%
-
-	local currentSize = self.instance.Size
-	self.instance.Size = Vector3.new(
-		currentSize.X * (1 + amount * 0.5),
-		currentSize.Y * (1 - amount),
-		currentSize.Z * (1 + amount * 0.5)
-	)
+	-- Call the parent class's flatten method for consistent behavior
+	BaseClass.flatten(self, amount)
 end
 
 -- Create a factory function for easy creation of dough objects

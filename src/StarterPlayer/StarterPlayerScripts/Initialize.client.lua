@@ -10,6 +10,7 @@ local DoughBase = require(ReplicatedStorage.Shared.DoughBase)
 local SliceSystem = require(ReplicatedStorage.Shared.SliceSystem)
 local DragSystem = require(ReplicatedStorage.Shared.DragSystem)
 local UISystem = require(ReplicatedStorage.Shared.UISystem)
+local CombineSystem = require(ReplicatedStorage.Shared.CombineSystem)
 
 print("Roact loaded successfully:", Roact ~= nil)
 
@@ -22,6 +23,11 @@ local function setupClickDetector(object)
 	local clickDetector = object.instance:FindFirstChild("ClickDetector")
 	if clickDetector then
 		clickDetector.MouseClick:Connect(function()
+			-- Prevent UI from showing if combine mode is active
+			if CombineSystem.isCombineActive() then
+				return
+			end
+
 			print(object.name .. " clicked!")
 
 			-- Show options UI using the object's options

@@ -25,6 +25,7 @@ function BaseClass.new(params)
 	self.meshType = params.meshType or Enum.MeshType.Sphere
 	self.material = params.material or Enum.Material.SmoothPlastic
 	self.sizeValue = params.sizeValue or DEFAULT_BASE_SIZE_VALUE
+	self.flattenCount = params.flattenCount or 0 -- Track number of times flattened
 
 	-- Instance for the part
 	self.instance = nil
@@ -113,6 +114,19 @@ function BaseClass:flatten(amount)
 
 	amount = amount or 0.5 -- Default flatten by 50%
 
+	-- Update flatten count
+	self.flattenCount = self.flattenCount + 1
+
+	-- Store flatten count in instance for persistence
+	if not self.instance:FindFirstChild("FlattenCount") then
+		local flattenCountValue = Instance.new("IntValue")
+		flattenCountValue.Name = "FlattenCount"
+		flattenCountValue.Value = self.flattenCount
+		flattenCountValue.Parent = self.instance
+	else
+		self.instance.FlattenCount.Value = self.flattenCount
+	end
+
 	local currentSize = self.instance.Size
 	self.instance.Size = Vector3.new(
 		currentSize.X * (1 + amount * 0.5),
@@ -120,7 +134,7 @@ function BaseClass:flatten(amount)
 		currentSize.Z * (1 + amount * 0.5)
 	)
 
-	print("Flattened " .. self.name)
+	print("Flattened " .. self.name .. " (Flatten count: " .. self.flattenCount .. ")")
 end
 
 -- Perform the actual slice operation
@@ -202,6 +216,7 @@ function BaseClass:performSlice(sliceStart, sliceEnd)
 		material = self.material,
 		meshType = self.meshType,
 		highlightColor = self.highlightColor,
+		flattenCount = 0, -- Reset flatten count for new sliced pieces
 	}
 
 	local params2 = {
@@ -213,6 +228,7 @@ function BaseClass:performSlice(sliceStart, sliceEnd)
 		material = self.material,
 		meshType = self.meshType,
 		highlightColor = self.highlightColor,
+		flattenCount = 0, -- Reset flatten count for new sliced pieces
 	}
 
 	-- Get the class of the current object

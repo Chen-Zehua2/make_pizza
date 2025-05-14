@@ -264,4 +264,24 @@ function DragSystem.getHoveredObject()
 	return hoveredObject
 end
 
+-- Get an object from its instance
+function DragSystem.getObjectFromInstance(instance)
+	if not instance then
+		return nil
+	end
+
+	for _, obj in ipairs(trackedObjects) do
+		if obj.instance == instance then
+			return obj
+		end
+	end
+
+	return nil
+end
+
+-- Get all tracked objects
+function DragSystem.getTrackedObjects()
+	return trackedObjects
+end
+
 return DragSystem

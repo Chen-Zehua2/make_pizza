@@ -36,6 +36,14 @@ function UISystem.showObjectUI(object)
 	local partSize = part.Size
 	local sizeValue = part:FindFirstChild("SizeValue") and part.SizeValue.Value or 1
 	local formattedSize = string.format("%.2f", sizeValue)
+	local flattenCount = object.flattenCount or 0
+
+	-- Also check if the instance has a FlattenCount value
+	if not object.flattenCount and part:FindFirstChild("FlattenCount") then
+		flattenCount = part.FlattenCount.Value
+		-- Update the object's flattenCount property to ensure consistency
+		object.flattenCount = flattenCount
+	end
 
 	-- Create a BillboardGui attached to the object in world space
 	local billboardGui = Instance.new("BillboardGui")
@@ -106,11 +114,23 @@ function UISystem.showObjectUI(object)
 	sizeInfo.Font = Enum.Font.Gotham
 	sizeInfo.Parent = mainFrame
 
+	-- Flatten count info
+	local flattenInfo = Instance.new("TextLabel")
+	flattenInfo.Name = "FlattenInfo"
+	flattenInfo.Size = UDim2.new(1, 0, 0, 20)
+	flattenInfo.Position = UDim2.new(0, 0, 0, 48)
+	flattenInfo.BackgroundTransparency = 1
+	flattenInfo.Text = "Flattened: " .. flattenCount .. " times"
+	flattenInfo.TextColor3 = Color3.fromRGB(200, 255, 200)
+	flattenInfo.TextSize = 14
+	flattenInfo.Font = Enum.Font.Gotham
+	flattenInfo.Parent = mainFrame
+
 	-- Options title
 	local optionsTitle = Instance.new("TextLabel")
 	optionsTitle.Name = "OptionsTitle"
 	optionsTitle.Size = UDim2.new(1, 0, 0, 20)
-	optionsTitle.Position = UDim2.new(0, 0, 0, 52)
+	optionsTitle.Position = UDim2.new(0, 0, 0, 68)
 	optionsTitle.BackgroundTransparency = 1
 	optionsTitle.Text = "OPTIONS"
 	optionsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -119,7 +139,7 @@ function UISystem.showObjectUI(object)
 	optionsTitle.Parent = mainFrame
 
 	-- Add buttons based on options provided by the object
-	local buttonPositionY = 76
+	local buttonPositionY = 92 -- Increase Y position to account for flatten info
 	local buttonHeight = 40
 	local buttonSpacing = 45
 
@@ -139,7 +159,7 @@ function UISystem.showObjectUI(object)
 		noOptions.Font = Enum.Font.Gotham
 		noOptions.Parent = mainFrame
 
-		billboardGui.Size = UDim2.new(0, 150, 0, 120) -- Smaller size for no options
+		billboardGui.Size = UDim2.new(0, 150, 0, 140) -- Increase size for flatten info
 	else
 		-- Add each button
 		for i, option in ipairs(options) do
@@ -177,7 +197,7 @@ function UISystem.showObjectUI(object)
 		end
 
 		-- Resize the frame height based on number of buttons
-		local totalHeight = 96 + (#options * buttonSpacing)
+		local totalHeight = 112 + (#options * buttonSpacing) -- Increase to account for flatten info
 		billboardGui.Size = UDim2.new(0, 150, 0, totalHeight)
 	end
 

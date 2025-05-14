@@ -16,7 +16,7 @@ local PlayerGui = player:WaitForChild("PlayerGui")
 local SliceSystem = {}
 
 -- Constants
-local MINIMUM_SLICE_LENGTH_PERCENTAGE = 0.75 -- 75% of the object needs to be sliced
+local MINIMUM_SLICE_LENGTH_PERCENTAGE = 0.4 -- Require slices to go through at least 40% of the diameter
 
 -- Variables for slice mode
 local isSlicingActive = false
@@ -319,17 +319,39 @@ function SliceSystem.startSlicing(object, objectClassModule)
 
 	-- Process the completed slice
 	local function processSlice()
-		if not sliceStart or not sliceEnd then
+		if not sliceStart or not sliceEnd or not targetObject or not targetObject.instance then
 			cleanupVisuals()
 			return
 		end
 
-		-- Check if the slice is valid (long enough)
-		local sliceLength = (sliceEnd - sliceStart).Magnitude
-		local objectRadius = math.max(objectSize.X, objectSize.Z) / 2
+		-- Store a local reference to targetObject to prevent it becoming nil during processing
+		local currentObject = targetObject
+		local currentClass = objectClass
 
-		-- Make minimum slice length proportional to the current object size
-		local minLength = objectRadius * 2 * MINIMUM_SLICE_LENGTH_PERCENTAGE -- Across at least 75% of the object
+		-- Calculate the slice vector in XZ plane (ignoring Y component)
+		local sliceVector = Vector3.new(sliceEnd.X - sliceStart.X, 0, sliceEnd.Z - sliceStart.Z)
+		local sliceLength = sliceVector.Magnitude
+
+		-- Directly get the object's current size from its instance
+		local currentObjectSize = currentObject.instance.Size
+		-- Use the wider dimension for a more consistent slice requirement
+		local objectDiameter = math.max(currentObjectSize.X, currentObjectSize.Z)
+
+		-- Calculate distance from slice to object center
+		local objectCenter = Vector3.new(currentObject.instance.Position.X, 0, currentObject.instance.Position.Z)
+		local sliceStartXZ = Vector3.new(sliceStart.X, 0, sliceStart.Z)
+		local sliceEndXZ = Vector3.new(sliceEnd.X, 0, sliceEnd.Z)
+
+		-- Calculate the minimum required length based on object's current size
+		local minLength = objectDiameter * MINIMUM_SLICE_LENGTH_PERCENTAGE
+
+		-- Debug information
+		print("Object Diameter:", objectDiameter)
+		print("Slice Length:", sliceLength)
+		print("Minimum Required:", minLength)
+		print("Object Center:", objectCenter)
+		print("Slice Start:", sliceStartXZ)
+		print("Slice End:", sliceEndXZ)
 
 		if sliceLength >= minLength then
 			-- Valid slice, proceed with slicing
@@ -337,14 +359,71 @@ function SliceSystem.startSlicing(object, objectClassModule)
 
 			-- Wait a brief moment to show completion before processing
 			task.delay(0.2, function()
+				-- Ensure the object still exists
+				if
+					not currentObject
+					or not currentObject.instance
+					or not currentObject.instance:IsDescendantOf(game)
+				then
+					print("Object no longer exists, canceling slice operation")
+					cleanupVisuals()
+					reenableClickDetectors()
+					DragSystem.setSlicingActive(false)
+
+					-- Reset state
+					isSlicingActive = false
+					isDrawing = false
+					mouseIsDown = false
+
+					-- Restore camera
+					if originalCameraType then
+						camera.CameraType = originalCameraType
+					end
+					if originalCameraSubject then
+						camera.CameraSubject = originalCameraSubject
+					end
+
+					if sliceInstructions then
+						sliceInstructions:Destroy()
+					end
+
+					targetObject = nil
+					objectClass = nil
+					return
+				end
+
 				-- Cleanup drawing objects
 				cleanupVisuals()
 
 				-- First, stop tracking the original object in the drag system
-				DragSystem.untrackObject(targetObject)
+				DragSystem.untrackObject(currentObject)
 
-				-- Call the object's slice method
-				local newObject1, newObject2 = targetObject:performSlice(sliceStart, sliceEnd)
+				-- Call the object's slice method using pcall to catch errors
+				local success, result1, result2 = pcall(function()
+					return currentObject:performSlice(sliceStart, sliceEnd)
+				end)
+
+				if not success then
+					print("Error during slice operation:", result1)
+					reenableClickDetectors()
+					DragSystem.setSlicingActive(false)
+					-- Restore camera
+					if originalCameraType then
+						camera.CameraType = originalCameraType
+					end
+					if originalCameraSubject then
+						camera.CameraSubject = originalCameraSubject
+					end
+
+					isSlicingActive = false
+					isDrawing = false
+					mouseIsDown = false
+					targetObject = nil
+					objectClass = nil
+					return
+				end
+
+				local newObject1, newObject2 = result1, result2
 
 				-- Start tracking the new objects in the drag system
 				if newObject1 then
@@ -355,6 +434,11 @@ function SliceSystem.startSlicing(object, objectClassModule)
 					if clickDetector1 then
 						clickDetector1.MouseClick:Connect(function()
 							local UISystem = require(ReplicatedStorage.Shared.UISystem)
+							local CombineSystem = require(ReplicatedStorage.Shared.CombineSystem)
+							-- Prevent UI from showing if combine mode is active
+							if CombineSystem.isCombineActive() then
+								return
+							end
 							-- Use the object's built-in options
 							UISystem.showObjectUI(newObject1)
 						end)
@@ -369,6 +453,11 @@ function SliceSystem.startSlicing(object, objectClassModule)
 					if clickDetector2 then
 						clickDetector2.MouseClick:Connect(function()
 							local UISystem = require(ReplicatedStorage.Shared.UISystem)
+							local CombineSystem = require(ReplicatedStorage.Shared.CombineSystem)
+							-- Prevent UI from showing if combine mode is active
+							if CombineSystem.isCombineActive() then
+								return
+							end
 							-- Use the object's built-in options
 							UISystem.showObjectUI(newObject2)
 						end)
