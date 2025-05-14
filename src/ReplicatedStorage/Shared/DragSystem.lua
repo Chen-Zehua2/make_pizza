@@ -7,8 +7,16 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
-local player = Players.LocalPlayer
-local camera = Workspace.CurrentCamera
+-- Check if we're running on client or server
+local isClient = RunService:IsClient()
+
+-- Client-only variables
+local player
+local camera
+if isClient then
+	player = Players.LocalPlayer
+	camera = Workspace.CurrentCamera
+end
 
 local DragSystem = {}
 
@@ -27,6 +35,11 @@ local mouseMoveConn = nil
 
 -- Initialize the drag system
 function DragSystem.init()
+	-- Only run on client
+	if not isClient then
+		return
+	end
+
 	print("Initializing drag system")
 
 	-- Connect mouse events for hover and dragging
@@ -40,6 +53,11 @@ end
 
 -- Cleanup the drag system
 function DragSystem.cleanup()
+	-- Only run on client
+	if not isClient then
+		return
+	end
+
 	-- Disconnect all connections
 	if mouseHoverConn then
 		mouseHoverConn:Disconnect()
@@ -96,8 +114,34 @@ function DragSystem.untrackObject(object)
 	return false
 end
 
+-- Function to clean up destroyed objects from the tracking list
+function DragSystem.cleanupDestroyedObjects()
+	local originalCount = #trackedObjects
+	local validObjects = {}
+
+	for _, obj in ipairs(trackedObjects) do
+		-- Check if the object and its instance are valid
+		if obj and obj.instance and obj.instance.Parent then
+			table.insert(validObjects, obj)
+		end
+	end
+
+	local removedCount = originalCount - #validObjects
+	if removedCount > 0 then
+		print("DragSystem: Cleaned up", removedCount, "destroyed objects")
+	end
+
+	trackedObjects = validObjects
+	return removedCount
+end
+
 -- Function to handle mouse hover effect
 function DragSystem.updateHoverEffect()
+	-- Only run on client
+	if not isClient then
+		return
+	end
+
 	if slicingActive then
 		return
 	end
@@ -154,6 +198,11 @@ end
 
 -- Function to handle mouse down for dragging
 function DragSystem.onMouseDown(input)
+	-- Only run on client
+	if not isClient then
+		return
+	end
+
 	if input.UserInputType ~= Enum.UserInputType.MouseButton1 or slicingActive then
 		return
 	end
@@ -173,6 +222,11 @@ end
 
 -- Function to handle mouse up for ending drag
 function DragSystem.onMouseUp(input)
+	-- Only run on client
+	if not isClient then
+		return
+	end
+
 	if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
 		return
 	end
@@ -195,93 +249,87 @@ end
 
 -- Function to handle mouse movement for dragging
 function DragSystem.onMouseMove(input)
+	-- Only run on client
+	if not isClient then
+		return
+	end
+
 	if input.UserInputType ~= Enum.UserInputType.MouseMovement then
 		return
 	end
 
-	-- Update hover effect
-	DragSystem.updateHoverEffect()
-
-	-- Handle dragging
+	-- If we're dragging, update position
 	if isDragging and draggedObject and draggedObject.instance then
-		-- Get current mouse position
+		-- Cast ray from mouse position to get the world position
 		local mousePos = UserInputService:GetMouseLocation()
-		local mouseRay = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+		local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
 
-		-- Cast ray to find where the mouse is pointing in the world
+		-- Create a raycast to find the ground or other surfaces
 		local raycastParams = RaycastParams.new()
 		raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-		raycastParams.FilterDescendantsInstances = { draggedObject.instance } -- Ignore the dragged object
+		raycastParams.FilterDescendantsInstances = { draggedObject.instance } -- Exclude the dragged object
 
-		local result = Workspace:Raycast(mouseRay.Origin, mouseRay.Direction * 500, raycastParams)
+		-- Raycast down to find ground or other surfaces
+		local result = Workspace:Raycast(ray.Origin, ray.Direction * 500, raycastParams)
 
 		if result then
-			-- Place the object directly at the hit position
-			-- The bottom of the object should touch the surface
-			local hitPosition = result.Position
-			local objectHalfHeight = draggedObject.instance.Size.Y / 2
+			local hitPoint = result.Position
 
-			-- Position the object so its bottom exactly touches the surface
-			draggedObject.instance.Position =
-				Vector3.new(hitPosition.X, hitPosition.Y + objectHalfHeight, hitPosition.Z)
-		else
-			-- If no hit, use a plane at a fixed height (like the floor or table)
-			-- Find a default surface (like the workspace floor or the pizza table)
-			local defaultY = 0 -- Default workspace floor
+			-- Calculate the new position to ensure bottom of object touches the ground
+			local objectSize = draggedObject.instance.Size
+			local objectHeight = objectSize.Y
 
-			-- Try to find the pizza table
-			local pizzaTable = Workspace:FindFirstChild("PizzaTable")
-			if pizzaTable and pizzaTable:IsA("BasePart") then
-				defaultY = pizzaTable.Position.Y + pizzaTable.Size.Y / 2
-			end
+			-- Position the object so its bottom touches the ground
+			local newPosition = Vector3.new(
+				hitPoint.X,
+				hitPoint.Y + (objectHeight / 2), -- Add half the height to raise it from the ground
+				hitPoint.Z
+			)
 
-			-- Project the mouse ray onto a horizontal plane at the default height
-			local planeNormal = Vector3.new(0, 1, 0)
-			local pointOnPlane = Vector3.new(0, defaultY, 0)
+			-- Get the dough ID from the instance attributes
+			local doughId = draggedObject.instance:GetAttribute("DoughId")
+			if doughId then
+				-- Update position immediately for responsive feel
+				draggedObject.instance.Position = newPosition
 
-			local rayDirection = mouseRay.Direction
-			local denominator = rayDirection:Dot(planeNormal)
-
-			if math.abs(denominator) > 0.0001 then
-				local t = (pointOnPlane - mouseRay.Origin):Dot(planeNormal) / denominator
-				local hitPosition = mouseRay.Origin + rayDirection * t
-
-				-- Set the object position with the object bottom at the plane
-				draggedObject.instance.Position =
-					Vector3.new(hitPosition.X, defaultY + draggedObject.instance.Size.Y / 2, hitPosition.Z)
+				-- Fire the remote event to update on server
+				local DoughRemotes = require(ReplicatedStorage.Shared.DoughRemotes)
+				DoughRemotes.UpdateDoughPosition:FireServer(doughId, newPosition)
 			end
 		end
 	end
 end
 
--- Set the slicing active flag (to disable dragging during slicing)
-function DragSystem.setSlicingActive(active)
-	slicingActive = active
-end
-
--- Get the currently hovered object
-function DragSystem.getHoveredObject()
-	return hoveredObject
-end
-
--- Get an object from its instance
+-- Function to get an object from its instance
 function DragSystem.getObjectFromInstance(instance)
-	if not instance then
-		return nil
-	end
-
 	for _, obj in ipairs(trackedObjects) do
 		if obj.instance == instance then
 			return obj
 		end
 	end
-
 	return nil
 end
 
--- Get all tracked objects
+-- Function to check if there are tracked objects
+function DragSystem.hasTrackedObjects()
+	return #trackedObjects > 0
+end
+
+-- Function to get all tracked objects
 function DragSystem.getTrackedObjects()
+	-- Clean up destroyed objects before returning the list
+	DragSystem.cleanupDestroyedObjects()
 	return trackedObjects
+end
+
+-- Function to set slicing active state
+function DragSystem.setSlicingActive(active)
+	slicingActive = active
+end
+
+-- Function to get slicing active state
+function DragSystem.isSlicingActive()
+	return slicingActive
 end
 
 return DragSystem

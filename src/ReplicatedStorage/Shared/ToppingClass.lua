@@ -35,12 +35,20 @@ function ToppingClass.new(params)
 	-- Define available options for topping objects with fixed colors
 	-- This will be loaded by the UI system
 	local SliceSystem = require(ReplicatedStorage.Shared.SliceSystem)
+	local CombineSystem = require(ReplicatedStorage.Shared.CombineSystem)
 	self.options = {
 		{
 			text = "Slice",
 			color = Color3.fromRGB(255, 156, 156), -- Red color for slice
 			callback = function()
 				SliceSystem.startSlicing(self, getmetatable(self))
+			end,
+		},
+		{
+			text = "Combine",
+			color = Color3.fromRGB(156, 255, 156), -- Green color for combine
+			callback = function()
+				CombineSystem.startCombining(self)
 			end,
 		},
 	}

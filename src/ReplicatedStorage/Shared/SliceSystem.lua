@@ -9,9 +9,19 @@ local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 local DragSystem = require(ReplicatedStorage.Shared.DragSystem)
 
-local player = Players.LocalPlayer
-local camera = Workspace.CurrentCamera
-local PlayerGui = player:WaitForChild("PlayerGui")
+-- Check if we're running on client or server
+local isClient = RunService:IsClient()
+local isServer = RunService:IsServer()
+
+-- Client-only code
+local player
+local camera
+local PlayerGui
+if isClient then
+	player = Players.LocalPlayer
+	camera = Workspace.CurrentCamera
+	PlayerGui = player:WaitForChild("PlayerGui")
+end
 
 local SliceSystem = {}
 
@@ -31,9 +41,14 @@ local objectClass = nil
 local originalCameraType = nil
 local originalCameraSubject = nil
 local disabledClickDetectors = {} -- Store click detectors with their original distances
+local sliceComplete = false -- Flag to prevent multiple slice attempts
 
 -- Function to start slicing the target object
 function SliceSystem.startSlicing(object, objectClassModule)
+	if not isClient then
+		return -- Only run on client
+	end
+
 	print("Starting to slice object...")
 
 	-- Make sure we have the object and its class
@@ -41,6 +56,9 @@ function SliceSystem.startSlicing(object, objectClassModule)
 		print("Cannot slice: invalid object")
 		return
 	end
+
+	-- Reset the slicing state
+	sliceComplete = false
 
 	-- Store the object and its class
 	targetObject = object
@@ -143,6 +161,8 @@ function SliceSystem.startSlicing(object, objectClassModule)
 
 	instructionFrame.Parent = sliceInstructions
 
+	slicingUI = sliceInstructions
+
 	-- Variables for slice drawing
 	local isDrawing = false
 	local drawingPoints = {}
@@ -231,505 +251,375 @@ function SliceSystem.startSlicing(object, objectClassModule)
 
 	-- Function to cleanup all visuals
 	local function cleanupVisuals()
+		-- Clear all stored visuals
 		for _, visual in ipairs(sliceVisuals) do
-			visual:Destroy()
+			if visual and visual.Parent then
+				visual:Destroy()
+			end
 		end
 		sliceVisuals = {}
 
-		if drawingSurface then
+		-- Clear drawing surface
+		if drawingSurface and drawingSurface.Parent then
 			drawingSurface:Destroy()
 			drawingSurface = nil
 		end
 
-		if edgeVisual then
+		-- Clear edge visual
+		if edgeVisual and edgeVisual.Parent then
 			edgeVisual:Destroy()
 			edgeVisual = nil
 		end
 	end
 
 	-- Function to re-enable all click detectors
-	local function reenableClickDetectors()
-		for clickDetector, originalDistance in pairs(disabledClickDetectors) do
-			if clickDetector and clickDetector:IsDescendantOf(game) then
-				clickDetector.MaxActivationDistance = originalDistance
+	local function restoreClickDetectors()
+		for clickDetector, distance in pairs(disabledClickDetectors) do
+			if clickDetector and clickDetector.Parent then
+				clickDetector.MaxActivationDistance = distance
 			end
 		end
 		disabledClickDetectors = {}
 	end
 
-	-- Show retry message
-	local function showRetryMessage()
-		local retryGui = Instance.new("ScreenGui")
-		retryGui.Name = "RetryMessage"
-		retryGui.ResetOnSpawn = false
-		retryGui.Parent = PlayerGui
+	-- Function to clean up the slice mode
+	local function exitSliceMode()
+		-- Reset slice flags and data
+		isSlicingActive = false
+		sliceStart = nil
+		sliceEnd = nil
 
-		local retryFrame = Instance.new("Frame")
-		retryFrame.Size = UDim2.new(0, 350, 0, 80)
-		retryFrame.Position = UDim2.new(0.5, -175, 0.7, 0)
-		retryFrame.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-		retryFrame.BackgroundTransparency = 0.2
-		retryFrame.BorderSizePixel = 0
+		-- Restore the player's camera
+		if originalCameraType and camera then
+			camera.CameraType = originalCameraType
+		end
+		if originalCameraSubject and camera then
+			camera.CameraSubject = originalCameraSubject
+		end
 
-		local cornerRadius = Instance.new("UICorner")
-		cornerRadius.CornerRadius = UDim.new(0, 10)
-		cornerRadius.Parent = retryFrame
+		-- Clean up connections
+		if mouseDown then
+			mouseDown:Disconnect()
+			mouseDown = nil
+		end
+		if mouseUp then
+			mouseUp:Disconnect()
+			mouseUp = nil
+		end
+		if mouseMove then
+			mouseMove:Disconnect()
+			mouseMove = nil
+		end
 
-		local retryText = Instance.new("TextLabel")
-		retryText.Size = UDim2.new(1, -20, 1, -20)
-		retryText.Position = UDim2.new(0, 10, 0, 10)
-		retryText.BackgroundTransparency = 1
-		retryText.Text = "Slice too short! Try drawing a longer slice."
-		retryText.TextColor3 = Color3.fromRGB(255, 255, 255)
-		retryText.TextSize = 16
-		retryText.Font = Enum.Font.GothamBold
-		retryText.Parent = retryFrame
+		-- Clean up all visuals
+		cleanupVisuals()
 
-		retryFrame.Parent = retryGui
+		-- Make sure the slice drawings are removed
+		for _, obj in pairs(Workspace:GetChildren()) do
+			if
+				obj:IsA("BasePart")
+				and (
+					obj.Name == "SlicePoint"
+					or obj.Name == "SliceLine"
+					or obj.Name == "DrawingSurface"
+					or obj.Name == "ObjectEdgeVisual"
+				)
+			then
+				obj:Destroy()
+			end
+		end
 
-		-- Animate in
-		retryFrame.Position = UDim2.new(0.5, -175, 1.1, 0)
-		retryFrame.Transparency = 1
+		-- Re-enable click detectors
+		restoreClickDetectors()
 
-		-- Tween in
-		local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-		local tween = TweenService:Create(retryFrame, tweenInfo, {
-			Position = UDim2.new(0.5, -175, 0.7, 0),
-			BackgroundTransparency = 0.2,
-		})
-		tween:Play()
+		-- Notify DragSystem that slicing is no longer active
+		DragSystem.setSlicingActive(false)
 
-		-- Remove after 3 seconds
-		task.delay(3, function()
-			-- Tween out
-			local tweenOut =
-				TweenService:Create(retryFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
-					Position = UDim2.new(0.5, -175, 1.1, 0),
-					BackgroundTransparency = 1,
-				})
-			tweenOut:Play()
+		-- Remove the slicing UI
+		if slicingUI then
+			slicingUI:Destroy()
+			slicingUI = nil
+		end
 
-			tweenOut.Completed:Connect(function()
-				retryGui:Destroy()
-			end)
-		end)
-
-		return retryGui
+		-- Clear the target object
+		targetObject = nil
+		print("Exited slice mode")
 	end
 
-	-- Process the completed slice
-	local function processSlice()
-		if not sliceStart or not sliceEnd or not targetObject or not targetObject.instance then
-			cleanupVisuals()
+	-- Function to finalize and perform the slice
+	local function finalizeSlice()
+		-- Prevent multiple slice attempts
+		if sliceComplete then
+			print("Slice already completed, ignoring additional slice attempt")
 			return
 		end
 
-		-- Store a local reference to targetObject to prevent it becoming nil during processing
-		local currentObject = targetObject
-		local currentClass = objectClass
-
-		-- Calculate the slice vector in XZ plane (ignoring Y component)
-		local sliceVector = Vector3.new(sliceEnd.X - sliceStart.X, 0, sliceEnd.Z - sliceStart.Z)
-		local sliceLength = sliceVector.Magnitude
-
-		-- Directly get the object's current size from its instance
-		local currentObjectSize = currentObject.instance.Size
-		-- Use the wider dimension for a more consistent slice requirement
-		local objectDiameter = math.max(currentObjectSize.X, currentObjectSize.Z)
-
-		-- Calculate distance from slice to object center
-		local objectCenter = Vector3.new(currentObject.instance.Position.X, 0, currentObject.instance.Position.Z)
-		local sliceStartXZ = Vector3.new(sliceStart.X, 0, sliceStart.Z)
-		local sliceEndXZ = Vector3.new(sliceEnd.X, 0, sliceEnd.Z)
-
-		-- Calculate the minimum required length based on object's current size
-		local minLength = objectDiameter * MINIMUM_SLICE_LENGTH_PERCENTAGE
-
-		-- Debug information
-		print("Object Diameter:", objectDiameter)
-		print("Slice Length:", sliceLength)
-		print("Minimum Required:", minLength)
-		print("Object Center:", objectCenter)
-		print("Slice Start:", sliceStartXZ)
-		print("Slice End:", sliceEndXZ)
-
-		if sliceLength >= minLength then
-			-- Valid slice, proceed with slicing
-			print("Valid slice! Length:", sliceLength, "Minimum:", minLength)
-
-			-- Wait a brief moment to show completion before processing
-			task.delay(0.2, function()
-				-- Ensure the object still exists
-				if
-					not currentObject
-					or not currentObject.instance
-					or not currentObject.instance:IsDescendantOf(game)
-				then
-					print("Object no longer exists, canceling slice operation")
-					cleanupVisuals()
-					reenableClickDetectors()
-					DragSystem.setSlicingActive(false)
-
-					-- Reset state
-					isSlicingActive = false
-					isDrawing = false
-					mouseIsDown = false
-
-					-- Restore camera
-					if originalCameraType then
-						camera.CameraType = originalCameraType
-					end
-					if originalCameraSubject then
-						camera.CameraSubject = originalCameraSubject
-					end
-
-					if sliceInstructions then
-						sliceInstructions:Destroy()
-					end
-
-					targetObject = nil
-					objectClass = nil
-					return
-				end
-
-				-- Cleanup drawing objects
-				cleanupVisuals()
-
-				-- First, stop tracking the original object in the drag system
-				DragSystem.untrackObject(currentObject)
-
-				-- Call the object's slice method using pcall to catch errors
-				local success, result1, result2 = pcall(function()
-					return currentObject:performSlice(sliceStart, sliceEnd)
-				end)
-
-				if not success then
-					print("Error during slice operation:", result1)
-					reenableClickDetectors()
-					DragSystem.setSlicingActive(false)
-					-- Restore camera
-					if originalCameraType then
-						camera.CameraType = originalCameraType
-					end
-					if originalCameraSubject then
-						camera.CameraSubject = originalCameraSubject
-					end
-
-					isSlicingActive = false
-					isDrawing = false
-					mouseIsDown = false
-					targetObject = nil
-					objectClass = nil
-					return
-				end
-
-				local newObject1, newObject2 = result1, result2
-
-				-- Start tracking the new objects in the drag system
-				if newObject1 then
-					DragSystem.trackObject(newObject1)
-
-					-- Set up click detector for the new object
-					local clickDetector1 = newObject1.instance:FindFirstChild("ClickDetector")
-					if clickDetector1 then
-						clickDetector1.MouseClick:Connect(function()
-							local UISystem = require(ReplicatedStorage.Shared.UISystem)
-							local CombineSystem = require(ReplicatedStorage.Shared.CombineSystem)
-							-- Prevent UI from showing if combine mode is active
-							if CombineSystem.isCombineActive() then
-								return
-							end
-							-- Use the object's built-in options
-							UISystem.showObjectUI(newObject1)
-						end)
-					end
-				end
-
-				if newObject2 then
-					DragSystem.trackObject(newObject2)
-
-					-- Set up click detector for the new object
-					local clickDetector2 = newObject2.instance:FindFirstChild("ClickDetector")
-					if clickDetector2 then
-						clickDetector2.MouseClick:Connect(function()
-							local UISystem = require(ReplicatedStorage.Shared.UISystem)
-							local CombineSystem = require(ReplicatedStorage.Shared.CombineSystem)
-							-- Prevent UI from showing if combine mode is active
-							if CombineSystem.isCombineActive() then
-								return
-							end
-							-- Use the object's built-in options
-							UISystem.showObjectUI(newObject2)
-						end)
-					end
-				end
-
-				-- Reset slicing state
-				isSlicingActive = false
-				isDrawing = false
-				mouseIsDown = false
-
-				-- Re-enable click detectors
-				reenableClickDetectors()
-
-				-- Inform DragSystem that slicing is no longer active
-				DragSystem.setSlicingActive(false)
-
-				-- Restore camera
-				camera.CameraType = originalCameraType
-				camera.CameraSubject = originalCameraSubject
-
-				if sliceInstructions then
-					sliceInstructions:Destroy()
-				end
-
-				-- Reset variables
-				targetObject = nil
-				objectClass = nil
-			end)
-		else
-			-- Invalid slice, show retry message
-			print("Slice too short! Length:", sliceLength, "Minimum:", minLength)
-			showRetryMessage()
-
-			-- Cleanup drawing
-			for _, visual in ipairs(sliceVisuals) do
-				visual:Destroy()
-			end
-			sliceVisuals = {}
-
-			-- Reset for another attempt
-			isDrawing = false
-			mouseIsDown = false
-			drawingPoints = {}
-			sliceStart = nil
-			sliceEnd = nil
+		-- Make sure we have valid target object
+		if not targetObject or not targetObject.instance then
+			print("Invalid slice: missing target object or instance")
+			exitSliceMode()
+			return
 		end
+
+		-- Make sure we have valid start and end points for the slice
+		if not sliceStart or not sliceEnd then
+			print("Invalid slice: missing start or end point")
+			exitSliceMode()
+			return
+		end
+
+		-- Set slice as complete to prevent multiple attempts
+		sliceComplete = true
+
+		-- Check if the slice is long enough (considering the object's radius)
+		local objectRadius = math.max(objectSize.X, objectSize.Z) / 2
+		local sliceLength = (sliceEnd - sliceStart).Magnitude
+		local sliceLengthRatio = sliceLength / (objectRadius * 2)
+
+		if sliceLengthRatio < MINIMUM_SLICE_LENGTH_PERCENTAGE then
+			print(
+				"Slice too short, must be at least " .. (MINIMUM_SLICE_LENGTH_PERCENTAGE * 100) .. "% of the diameter"
+			)
+			exitSliceMode()
+			return
+		end
+
+		-- Get the dough ID to slice server-side
+		local doughId = targetObject.instance:GetAttribute("DoughId")
+		if not doughId then
+			warn("Cannot slice: missing DoughId attribute")
+			exitSliceMode()
+			return
+		end
+
+		-- Stop receiving input immediately to prevent further slice actions
+		if mouseDown then
+			mouseDown:Disconnect()
+			mouseDown = nil
+		end
+		if mouseUp then
+			mouseUp:Disconnect()
+			mouseUp = nil
+		end
+		if mouseMove then
+			mouseMove:Disconnect()
+			mouseMove = nil
+		end
+
+		-- Calculate slice direction and perform client-side calculations
+		-- This is now done client-side instead of sending raw slice points to server
+
+		-- Get all the necessary values for the calculation
+		local part = targetObject.instance
+		local partPosition = part.Position
+		local partSize = part.Size
+		local sizeValue = part:FindFirstChild("SizeValue") and part.SizeValue.Value or 1
+
+		-- Calculate the slice direction and normalize it to XZ plane
+		local sliceDir = Vector3.new(sliceEnd.X - sliceStart.X, 0, sliceEnd.Z - sliceStart.Z).Unit
+
+		-- Calculate perpendicular vector to the slice (for offsetting the new bases)
+		local perpDir = Vector3.new(-sliceDir.Z, 0, sliceDir.X)
+
+		-- Calculate part center in XZ plane
+		local partCenterXZ = Vector3.new(partPosition.X, 0, partPosition.Z)
+
+		-- Calculate slice center in XZ plane
+		local sliceCenter = Vector3.new((sliceStart.X + sliceEnd.X) / 2, 0, (sliceStart.Z + sliceEnd.Z) / 2)
+
+		-- Calculate distance from slice center to part center
+		local centerToSlice = (sliceCenter - partCenterXZ).Magnitude
+
+		-- Calculate the ratio for splitting (0.5 means perfect middle, closer to 0 or 1 means uneven)
+		local splitRatio = math.clamp(centerToSlice / objectRadius, 0.01, 0.99)
+
+		-- Calculate size values for the two halves
+		local largerSideRatio = 0.5 + (splitRatio * 0.5) -- Ranges from 0.5 to 1.0
+		local smallerSideRatio = 1 - largerSideRatio -- Ranges from 0.5 to 0.0
+
+		-- Determine which side is smaller (the one the slice is closer to)
+		local sideSign = perpDir:Dot(sliceCenter - partCenterXZ)
+
+		-- Assign size values based on which side is smaller
+		local sizeValue1, sizeValue2
+		if sideSign >= 0 then
+			-- Slice is closer to side 2
+			sizeValue1 = sizeValue * largerSideRatio
+			sizeValue2 = sizeValue * smallerSideRatio
+		else
+			-- Slice is closer to side 1
+			sizeValue1 = sizeValue * smallerSideRatio
+			sizeValue2 = sizeValue * largerSideRatio
+		end
+
+		-- Calculate positions for the two new pieces
+		local offsetRatio1 = sizeValue1 / sizeValue
+		local offsetRatio2 = sizeValue2 / sizeValue
+
+		local pos1 = Vector3.new(
+			partPosition.X + perpDir.X * objectRadius * offsetRatio2 * 0.5,
+			partPosition.Y,
+			partPosition.Z + perpDir.Z * objectRadius * offsetRatio2 * 0.5
+		)
+
+		local pos2 = Vector3.new(
+			partPosition.X - perpDir.X * objectRadius * offsetRatio1 * 0.5,
+			partPosition.Y,
+			partPosition.Z - perpDir.Z * objectRadius * offsetRatio1 * 0.5
+		)
+
+		print("Slicing with computed values:", string.format("%.2f/%.2f", sizeValue1, sizeValue2))
+
+		-- Clear all visuals before sending to server
+		cleanupVisuals()
+
+		-- Store slicing data
+		local sliceData = {
+			pos1 = pos1,
+			pos2 = pos2,
+			sizeValue1 = sizeValue1,
+			sizeValue2 = sizeValue2,
+			sliceStart = sliceStart,
+			sliceEnd = sliceEnd,
+		}
+
+		-- Store relevant variables locally since they'll be wiped when exiting slice mode
+		local localTargetObjectId = doughId
+
+		-- Exit slice mode (cleanup will be handled by remote event response)
+		exitSliceMode()
+
+		-- Make sure we don't have any lingering visuals
+		task.defer(function()
+			-- Do a double check for any visuals that might have been missed
+			for _, obj in pairs(Workspace:GetChildren()) do
+				if
+					obj:IsA("BasePart")
+					and (
+						obj.Name == "SlicePoint"
+						or obj.Name == "SliceLine"
+						or obj.Name == "DrawingSurface"
+						or obj.Name == "ObjectEdgeVisual"
+					)
+				then
+					obj:Destroy()
+				end
+			end
+		end)
+
+		-- Send the computed slice data to the server
+		local DoughRemotes = require(ReplicatedStorage.Shared.DoughRemotes)
+		DoughRemotes.SliceDough:FireServer(localTargetObjectId, sliceData)
 	end
 
-	-- Connect input events for slicing
-	local inputStarted = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	-- Handle mouse button down
+	local mouseDown = UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then
 			return
 		end
 
-		if input.UserInputType == Enum.UserInputType.MouseButton1 and isSlicingActive and not isDrawing then
-			mouseIsDown = true
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			-- Check if slicing is still active
+			if not isSlicingActive or sliceComplete then
+				return
+			end
 
-			-- Project mouse to object plane
+			-- Project the mouse position to the object plane using GetMouseLocation for accuracy
 			local mousePos = UserInputService:GetMouseLocation()
-			local hitPosition = projectToObjectPlane(mousePos)
+			local projectedPosition = projectToObjectPlane(mousePos)
 
-			if hitPosition and isPointWithinObject(hitPosition) then
+			if projectedPosition and isPointWithinObject(projectedPosition) then
+				-- Start drawing the slice
 				isDrawing = true
-				drawingPoints = {}
-				sliceStart = hitPosition
+				mouseIsDown = true
+				sliceStart = projectedPosition
 
-				-- Create a visual point where the drawing started
-				createPointVisual(sliceStart, Color3.fromRGB(0, 255, 0)) -- Green
-
-				-- Add the point to our drawing points
-				table.insert(drawingPoints, sliceStart)
+				-- Create a visual point where the slice starts
+				createPointVisual(sliceStart, Color3.fromRGB(0, 255, 0))
 			end
-		elseif input.KeyCode == Enum.KeyCode.E and isSlicingActive then
-			-- Clean up and cancel
-			cleanupVisuals()
-			isSlicingActive = false
-
-			-- Re-enable click detectors
-			reenableClickDetectors()
-
-			-- Inform DragSystem that slicing is no longer active
-			DragSystem.setSlicingActive(false)
-
-			-- Restore camera
-			camera.CameraType = originalCameraType
-			camera.CameraSubject = originalCameraSubject
-
-			if sliceInstructions then
-				sliceInstructions:Destroy()
-			end
-
-			-- Reset variables
-			targetObject = nil
-			objectClass = nil
+		elseif input.KeyCode == Enum.KeyCode.E then
+			-- User pressed E to cancel slicing
+			exitSliceMode()
 		end
 	end)
 
-	local inputEnded = UserInputService.InputEnded:Connect(function(input, gameProcessed)
+	-- Handle mouse button up
+	local mouseUp = UserInputService.InputEnded:Connect(function(input, gameProcessed)
 		if gameProcessed then
 			return
 		end
 
 		if input.UserInputType == Enum.UserInputType.MouseButton1 and mouseIsDown then
+			-- Check if slicing is still active
+			if not isSlicingActive or sliceComplete then
+				return
+			end
+
+			-- End drawing the slice
 			mouseIsDown = false
+			isDrawing = false
 
-			if isDrawing then
-				-- Project mouse to object plane
-				local mousePos = UserInputService:GetMouseLocation()
-				local hitPosition = projectToObjectPlane(mousePos)
-
-				if hitPosition then
-					-- Use the hit position directly if within object, otherwise find intersection with edge
-					if isPointWithinObject(hitPosition) then
-						sliceEnd = hitPosition
-					else
-						-- Find intersection with object edge
-						local direction = (hitPosition - sliceStart).Unit
-						local objectCenter = Vector3.new(objectPosition.X, hitPosition.Y, objectPosition.Z)
-						local objectRadius = math.max(objectSize.X, objectSize.Z) / 2
-
-						-- Calculate intersection with object circle in XZ plane
-						local offset = hitPosition - objectCenter
-						offset = Vector3.new(offset.X, 0, offset.Z)
-						local normalizedOffset = offset.Unit
-
-						sliceEnd = objectCenter + normalizedOffset * objectRadius
-					end
-
-					-- Create visual for the end point
-					createPointVisual(sliceEnd, Color3.fromRGB(255, 0, 0)) -- Red
-
-					-- Add to drawing points
-					table.insert(drawingPoints, sliceEnd)
-
-					-- Process the completed slice
-					processSlice()
-				else
-					-- Reset if couldn't project
-					isDrawing = false
-					drawingPoints = {}
-				end
+			-- Only finalize the slice if we have a valid end point
+			if sliceEnd then
+				finalizeSlice()
+			else
+				exitSliceMode()
 			end
 		end
 	end)
 
-	local inputChanged = UserInputService.InputChanged:Connect(function(input, gameProcessed)
+	-- Handle mouse movement
+	local mouseMove = UserInputService.InputChanged:Connect(function(input, gameProcessed)
 		if gameProcessed then
 			return
 		end
 
-		if input.UserInputType == Enum.UserInputType.MouseMovement and isDrawing and mouseIsDown then
-			-- Project mouse to object plane
+		if input.UserInputType == Enum.UserInputType.MouseMovement and isDrawing then
+			-- Check if slicing is still active
+			if not isSlicingActive or sliceComplete then
+				return
+			end
+
+			-- Project the mouse position to the object plane using GetMouseLocation for accuracy
 			local mousePos = UserInputService:GetMouseLocation()
-			local hitPosition = projectToObjectPlane(mousePos)
+			local projectedPosition = projectToObjectPlane(mousePos)
 
-			if hitPosition then
-				local currentPoint = hitPosition
+			if projectedPosition then
+				-- Update the slice end point
+				sliceEnd = projectedPosition
 
-				-- If there's a previous point, draw a line to it
-				if #drawingPoints > 0 then
-					local prevPoint = drawingPoints[#drawingPoints]
+				-- Clear existing visuals (except the start point)
+				for i = #sliceVisuals, 2, -1 do
+					sliceVisuals[i]:Destroy()
+					table.remove(sliceVisuals, i)
+				end
 
-					-- If moving a minimum distance, create a new point
-					if (currentPoint - prevPoint).Magnitude > 0.3 then -- Minimum distance between points
-						-- Create line from previous point to current point
-						createLineSegment(prevPoint, currentPoint)
+				-- Create a visual point where the slice currently ends
+				createPointVisual(sliceEnd, Color3.fromRGB(255, 0, 0))
 
-						-- Add the new point to our drawing
-						table.insert(drawingPoints, currentPoint)
-					end
+				-- Draw a line connecting the points
+				if sliceStart then
+					createLineSegment(sliceStart, sliceEnd)
 				end
 			end
 		end
 	end)
 
-	-- Store cleanup function
-	slicingUI = sliceInstructions
-
-	-- Return a cleanup function
-	local function cleanup()
-		-- Disconnect all events
-		inputStarted:Disconnect()
-		inputEnded:Disconnect()
-		inputChanged:Disconnect()
-
-		-- Cleanup visuals
-		cleanupVisuals()
-
-		-- Re-enable click detectors
-		reenableClickDetectors()
-
-		-- Remove instructions
-		if sliceInstructions then
-			sliceInstructions:Destroy()
+	-- Clean up connections and visuals when done
+	local cleanupConnections = function()
+		if mouseDown then
+			mouseDown:Disconnect()
 		end
-
-		-- Reset slicing state
-		isSlicingActive = false
-		isDrawing = false
-		mouseIsDown = false
-
-		-- Inform DragSystem that slicing is no longer active
-		DragSystem.setSlicingActive(false)
-
-		-- Restore camera
-		camera.CameraType = originalCameraType
-		camera.CameraSubject = originalCameraSubject
-
-		-- Reset variables
-		targetObject = nil
-		objectClass = nil
-	end
-
-	return cleanup
-end
-
--- Function to cancel slicing process
-function SliceSystem.cancelSlicing()
-	if not isSlicingActive then
-		return
-	end
-
-	print("Cancelled slicing")
-
-	-- Reset camera
-	camera.CameraType = originalCameraType or Enum.CameraType.Custom
-	camera.CameraSubject = originalCameraSubject or player.Character:FindFirstChild("Humanoid")
-
-	-- Cleanup slicing state
-	if slicingUI then
-		if typeof(slicingUI) == "function" then
-			slicingUI() -- Call cleanup function if it's a function
-		elseif slicingUI.Destroy then
-			slicingUI:Destroy()
+		if mouseUp then
+			mouseUp:Disconnect()
 		end
-
-		slicingUI = nil
-	end
-
-	-- Cleanup visuals
-	if drawingSurface then
-		drawingSurface:Destroy()
-		drawingSurface = nil
-	end
-
-	if edgeVisual then
-		edgeVisual:Destroy()
-		edgeVisual = nil
-	end
-
-	for _, visual in ipairs(sliceVisuals) do
-		visual:Destroy()
-	end
-	sliceVisuals = {}
-
-	-- Re-enable click detectors
-	for clickDetector, originalDistance in pairs(disabledClickDetectors) do
-		if clickDetector and clickDetector:IsDescendantOf(game) then
-			clickDetector.MaxActivationDistance = originalDistance
+		if mouseMove then
+			mouseMove:Disconnect()
 		end
 	end
-	disabledClickDetectors = {}
 
-	-- Inform DragSystem that slicing is no longer active
-	DragSystem.setSlicingActive(false)
-
-	isSlicingActive = false
-	sliceStart = nil
-	sliceEnd = nil
-	targetObject = nil
-	objectClass = nil
+	-- Store cleanup function to be called when the object is destroyed
+	targetObject.cleanupSlice = cleanupConnections
 end
 
 return SliceSystem

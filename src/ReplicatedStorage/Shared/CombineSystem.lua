@@ -10,9 +10,19 @@ local Workspace = game:GetService("Workspace")
 local DragSystem = require(ReplicatedStorage.Shared.DragSystem)
 local UISystem = require(ReplicatedStorage.Shared.UISystem)
 
-local player = Players.LocalPlayer
-local PlayerGui = player:WaitForChild("PlayerGui")
-local camera = Workspace.CurrentCamera
+-- Check if we're running on client or server
+local isClient = RunService:IsClient()
+local isServer = RunService:IsServer()
+
+-- Client-only variables
+local player
+local PlayerGui
+local camera
+if isClient then
+	player = Players.LocalPlayer
+	PlayerGui = player:WaitForChild("PlayerGui")
+	camera = Workspace.CurrentCamera
+end
 
 local CombineSystem = {}
 
@@ -30,9 +40,19 @@ local inputEnded = nil -- Connection for input ended events
 local inputChanged = nil -- Connection for input changed events
 local disabledClickDetectors = {} -- Store click detectors with their original distances
 
+-- Function to check if combine mode is active
+function CombineSystem.isCombineActive()
+	return isCombineActive
+end
+
 -- Function to check if an object is a dough
 local function isDough(object)
 	if not object or not object.instance then
+		return false
+	end
+
+	-- Ensure the instance is still valid (not destroyed)
+	if not object.instance.Parent then
 		return false
 	end
 
@@ -52,10 +72,46 @@ local function isDough(object)
 	return object.name and object.name:find("Dough") ~= nil
 end
 
+-- Function to check if the client owns a dough object
+local function clientOwnsDough(dough)
+	if not isClient or not dough or not dough.instance then
+		return false
+	end
+
+	-- Ensure the instance is still valid (not destroyed)
+	if not dough.instance.Parent then
+		return false
+	end
+
+	-- Get the creator ID from the instance attributes
+	local creatorId = dough.instance:GetAttribute("CreatorId")
+
+	-- Check if the creator ID matches the local player's ID
+	return creatorId and creatorId == player.UserId
+end
+
+-- Function to get all doughs owned by the client
+local function getClientOwnedDoughs()
+	local ownedDoughs = {}
+	local trackedObjects = DragSystem.getTrackedObjects()
+
+	for _, obj in ipairs(trackedObjects) do
+		if obj and obj.instance and isDough(obj) and clientOwnsDough(obj) then
+			table.insert(ownedDoughs, obj)
+		end
+	end
+
+	return ownedDoughs
+end
+
 -- Function to create a selection highlight for a dough
 local function highlightDough(dough)
+	if not isClient then
+		return nil
+	end
+
 	if not dough or not dough.instance or selectionHighlights[dough] then
-		return
+		return nil
 	end
 
 	local highlight = Instance.new("Highlight")
@@ -88,6 +144,10 @@ end
 
 -- Function to remove all highlights
 local function removeAllHighlights()
+	if not isClient then
+		return
+	end
+
 	for dough, highlight in pairs(selectionHighlights) do
 		if highlight and highlight.Parent then
 			highlight:Destroy()
@@ -99,11 +159,21 @@ end
 
 -- Function to start combine mode
 function CombineSystem.startCombining(dough)
+	if not isClient then
+		return
+	end
+
 	print("Starting combine mode with dough:", dough.name)
 
 	-- Validate that we have a dough object
 	if not dough or not dough.instance or not isDough(dough) then
 		print("Cannot combine: invalid dough object")
+		return
+	end
+
+	-- Verify that the dough is owned by the client
+	if not clientOwnsDough(dough) then
+		print("Cannot combine: you don't own this dough")
 		return
 	end
 
@@ -113,9 +183,17 @@ function CombineSystem.startCombining(dough)
 	-- Set the combine flag
 	isCombineActive = true
 
+	-- Pre-fetch all dough objects for faster selection
+	local trackedObjects = DragSystem.getTrackedObjects()
+	local allDoughObjects = {}
+	for _, obj in ipairs(trackedObjects) do
+		if obj and obj.instance and isDough(obj) and obj ~= targetDough then
+			table.insert(allDoughObjects, obj)
+		end
+	end
+
 	-- Disable all click detectors to prevent UI from showing
 	disabledClickDetectors = {}
-	local trackedObjects = DragSystem.getTrackedObjects()
 	for _, obj in ipairs(trackedObjects) do
 		if obj and obj.instance then
 			local clickDetector = obj.instance:FindFirstChild("ClickDetector")
@@ -227,13 +305,8 @@ function CombineSystem.startCombining(dough)
 
 	-- Function to update selection count display
 	local function updateSelectionCount()
-		local count = 0
-		for _ in pairs(selectionHighlights) do
-			count = count + 1
-		end
-
-		-- Target dough is included in the count but doesn't contribute to combine
-		local combineCount = count - 1
+		-- Update the count text based on actually selected doughs, not highlights
+		local combineCount = #selectedDoughs
 
 		-- Update the count text
 		local countDisplay = combineInstructions:FindFirstChild("CountText", true)
@@ -242,38 +315,243 @@ function CombineSystem.startCombining(dough)
 		end
 	end
 
+	-- Function to exit combine mode
+	local function exitCombineMode()
+		-- Reset combine flag
+		isCombineActive = false
+
+		-- Clear all highlights
+		removeAllHighlights()
+
+		-- Restore click detectors
+		for clickDetector, distance in pairs(disabledClickDetectors) do
+			if clickDetector and clickDetector.Parent then
+				clickDetector.MaxActivationDistance = distance
+			end
+		end
+		disabledClickDetectors = {}
+
+		-- Remove UIs
+		if combineInstructions then
+			combineInstructions:Destroy()
+			combineInstructions = nil
+		end
+
+		if selectionBox and selectionBox.Parent then
+			selectionBox.Parent:Destroy()
+			selectionBox = nil
+		end
+
+		-- Disconnect input events
+		if inputStarted then
+			inputStarted:Disconnect()
+			inputStarted = nil
+		end
+		if inputEnded then
+			inputEnded:Disconnect()
+			inputEnded = nil
+		end
+		if inputChanged then
+			inputChanged:Disconnect()
+			inputChanged = nil
+		end
+
+		-- Reset variables
+		targetDough = nil
+		selectionStartPos = nil
+		selectedDoughs = {}
+
+		print("Exited combine mode")
+	end
+
 	-- Function to find doughs in selection box
 	local function findDoughsInSelectionBox(startX, startY, endX, endY)
 		-- Normalize the coordinates (ensure start < end)
 		local x1, x2 = math.min(startX, endX), math.max(startX, endX)
 		local y1, y2 = math.min(startY, endY), math.max(startY, endY)
 
-		-- Get all doughs in the workspace
-		for _, obj in pairs(Workspace:GetChildren()) do
-			if obj:IsA("BasePart") and obj.Name:find("Dough") then
-				-- Check if this is a valid dough object
-				local viewportPos = camera:WorldToViewportPoint(obj.Position)
-				local x, y = viewportPos.X, viewportPos.Y
-
-				-- Check if the dough is within the selection box
-				if x >= x1 and x <= x2 and y >= y1 and y <= y2 and viewportPos.Z > 0 then
-					-- Try to find the dough object in the DragSystem tracked objects
-					local foundObject = DragSystem.getObjectFromInstance(obj)
-
-					if foundObject and isDough(foundObject) and foundObject ~= targetDough then
-						-- Add to selection if not already selected
-						if not selectionHighlights[foundObject] then
-							selectedDoughs[foundObject] = true
-							highlightDough(foundObject)
-							updateSelectionCount()
-						end
-					end
+		-- Clear existing highlights (except target) and reset selected doughs
+		selectedDoughs = {} -- Reset the selected doughs array completely
+		for dough, highlight in pairs(selectionHighlights) do
+			if dough ~= targetDough then
+				if highlight and highlight.Parent then
+					highlight:Destroy()
 				end
+				selectionHighlights[dough] = nil
 			end
 		end
+
+		-- Get all tracked objects from the drag system
+		local trackedObjects = DragSystem.getTrackedObjects()
+		print("Total tracked objects after cleanup:", #trackedObjects)
+
+		-- Create a table to track dough IDs we've already processed to prevent duplicates
+		local processedDoughIds = {}
+		local clientOwnedCount = 0
+		local selectedCount = 0
+
+		print("Starting box selection with box coordinates:", x1, y1, "to", x2, y2)
+
+		-- First, get candidate doughs that are valid for selection
+		for _, obj in ipairs(trackedObjects) do
+			-- Explicitly validate that the object has a valid instance with a parent
+			if not obj or not obj.instance or not obj.instance.Parent then
+				continue
+			end
+
+			-- Skip target dough and non-client owned doughs
+			if obj == targetDough or not isDough(obj) or not clientOwnsDough(obj) then
+				continue
+			end
+
+			clientOwnedCount = clientOwnedCount + 1
+
+			-- Get the dough ID to prevent duplicates
+			local doughId = obj.instance:GetAttribute("DoughId")
+			if not doughId then
+				print("Skipping dough with no ID")
+				continue
+			end
+
+			-- Skip if we've already processed this dough ID
+			if processedDoughIds[doughId] then
+				print("Skipping already processed dough ID:", doughId)
+				continue
+			end
+
+			-- Mark this dough ID as processed
+			processedDoughIds[doughId] = true
+
+			-- Convert the object's 3D position to screen position
+			local screenPos = camera:WorldToScreenPoint(obj.instance.Position)
+
+			-- Skip if behind camera
+			if screenPos.Z <= 0 then
+				continue
+			end
+
+			-- Check if the object is within the selection box
+			if screenPos.X >= x1 and screenPos.X <= x2 and screenPos.Y >= y1 and screenPos.Y <= y2 then
+				-- Add to selectedDoughs array
+				table.insert(selectedDoughs, obj)
+				selectedCount = selectedCount + 1
+
+				-- Highlight the dough
+				highlightDough(obj)
+
+				print("Selected dough ID:", doughId, "at screen position", screenPos.X, screenPos.Y)
+			end
+		end
+
+		print("Client owns", clientOwnedCount, "doughs")
+		print("Selected", selectedCount, "unique doughs in box selection")
+		print("Selected doughs array length:", #selectedDoughs)
+
+		-- Update the selection count display
+		updateSelectionCount()
 	end
 
-	-- Input handling
+	-- Function to combine all selected dough objects with the target
+	local function combineSelectedDoughs()
+		if not isClient then
+			return
+		end
+
+		-- Make sure we have a target and at least one selected dough
+		if not targetDough or #selectedDoughs == 0 then
+			print("Nothing to combine")
+			return
+		end
+
+		-- Verify that the target dough is owned by the client
+		if not clientOwnsDough(targetDough) then
+			print("Cannot combine: target dough is not owned by you")
+			exitCombineMode()
+			return
+		end
+
+		print("Combining", #selectedDoughs, "doughs into", targetDough.name)
+
+		-- Create a table to track dough IDs we've already processed
+		local processedDoughIds = {}
+		local doughIds = {}
+		local totalSizeValue = targetDough.sizeValue or 1
+
+		-- Target dough ID for validation
+		local targetDoughId = targetDough.instance and targetDough.instance:GetAttribute("DoughId")
+		if not targetDoughId then
+			print("Cannot combine: target dough has no ID")
+			exitCombineMode()
+			return
+		end
+
+		-- Track the target dough ID to prevent selecting it
+		processedDoughIds[targetDoughId] = true
+
+		-- Log selected doughs before validation
+		print("Before validation - Selected doughs count:", #selectedDoughs)
+
+		-- Validate each dough and build the list of doughs to combine
+		for _, dough in ipairs(selectedDoughs) do
+			-- Skip invalid doughs or the target
+			if not dough or not dough.instance or dough == targetDough then
+				continue
+			end
+
+			-- Get the dough ID
+			local doughId = dough.instance:GetAttribute("DoughId")
+			if not doughId then
+				print("Skipping dough with no ID")
+				continue
+			end
+
+			-- Skip if we've already processed this dough ID or it's the target
+			if processedDoughIds[doughId] then
+				print("Skipping duplicate dough ID:", doughId)
+				continue
+			end
+
+			-- Verify client ownership
+			if not clientOwnsDough(dough) then
+				print("Skipping dough not owned by client, ID:", doughId)
+				continue
+			end
+
+			-- Mark as processed
+			processedDoughIds[doughId] = true
+
+			-- Add to list of doughs to combine
+			table.insert(doughIds, doughId)
+
+			-- Add to total size
+			totalSizeValue = totalSizeValue + (dough.sizeValue or 1)
+
+			print("Validated dough for combining, ID:", doughId)
+		end
+
+		-- Check if we have any doughs to combine
+		if #doughIds == 0 then
+			print("No valid doughs to combine after validation")
+			exitCombineMode()
+			return
+		end
+
+		-- Log the final validated doughs being combined
+		print("After validation: Combining", #doughIds, "doughs into target ID =", targetDoughId)
+		print("Selected dough IDs =", table.concat(doughIds, ", "))
+
+		-- Send to server with optimized data
+		local DoughRemotes = require(ReplicatedStorage.Shared.DoughRemotes)
+		DoughRemotes.CombineDoughs:FireServer(targetDoughId, doughIds, totalSizeValue)
+
+		-- Immediately update the target dough size value locally for responsiveness
+		targetDough.sizeValue = totalSizeValue
+
+		-- Exit combine mode
+		exitCombineMode()
+	end
+
+	-- Handle mouse button down for selection
 	inputStarted = UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then
 			return
@@ -282,282 +560,168 @@ function CombineSystem.startCombining(dough)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			-- Start selection box
 			selectionStartPos = Vector2.new(input.Position.X, input.Position.Y)
-			selectionBox.Position = UDim2.new(0, selectionStartPos.X, 0, selectionStartPos.Y)
-			selectionBox.Size = UDim2.new(0, 0, 0, 0)
+			selectionBox.Position = UDim2.fromOffset(selectionStartPos.X, selectionStartPos.Y)
+			selectionBox.Size = UDim2.fromOffset(0, 0)
 			selectionBox.Visible = true
-
-			-- Check if clicked directly on a dough
-			local mousePos = UserInputService:GetMouseLocation()
-			local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
-
-			-- Cast ray from camera through mouse position
-			local raycastParams = RaycastParams.new()
-			raycastParams.FilterType = Enum.RaycastFilterType.Whitelist
-
-			-- Add all dough instances to the filter
-			local instances = {}
-			local trackedObjects = DragSystem.getTrackedObjects()
-			for _, obj in ipairs(trackedObjects) do
-				if obj and obj.instance and isDough(obj) then
-					table.insert(instances, obj.instance)
-				end
-			end
-
-			if #instances == 0 then
-				return
-			end
-
-			raycastParams.FilterDescendantsInstances = instances
-
-			-- Perform the raycast
-			local result = Workspace:Raycast(ray.Origin, ray.Direction * 100, raycastParams)
-
-			if result and result.Instance then
-				-- Find the clicked object
-				local clickedDough = DragSystem.getObjectFromInstance(result.Instance)
-
-				if clickedDough and isDough(clickedDough) and clickedDough ~= targetDough then
-					print("Clicked on dough:", clickedDough.name)
-					-- Toggle selection
-					if selectionHighlights[clickedDough] then
-						-- Deselect
-						selectionHighlights[clickedDough]:Destroy()
-						selectionHighlights[clickedDough] = nil
-						selectedDoughs[clickedDough] = nil
-					else
-						-- Select
-						selectedDoughs[clickedDough] = true
-						highlightDough(clickedDough)
-					end
-
-					updateSelectionCount()
-				end
-			end
-		elseif input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.KeypadEnter then
-			-- Combine selected doughs
-			local doughsToRemove = {}
-			local totalSizeValue = targetDough.instance.SizeValue.Value
-
-			-- Calculate total size and collect doughs to remove
-			for dough, _ in pairs(selectedDoughs) do
-				if dough and dough.instance and dough ~= targetDough then
-					totalSizeValue = totalSizeValue + dough.instance.SizeValue.Value
-					table.insert(doughsToRemove, dough)
-				end
-			end
-
-			-- Update target dough size
-			local newScaleFactor = totalSizeValue ^ (1 / 3) -- Cube root for 3D scaling
-			local originalSize = targetDough.size
-
-			-- Get the base size from targetDough definition
-			targetDough.instance.SizeValue.Value = totalSizeValue
-			targetDough.sizeValue = totalSizeValue
-
-			-- Reset flatten count for combined dough
-			targetDough.flattenCount = 0
-			if targetDough.instance:FindFirstChild("FlattenCount") then
-				targetDough.instance.FlattenCount.Value = 0
-			else
-				local flattenCountValue = Instance.new("IntValue")
-				flattenCountValue.Name = "FlattenCount"
-				flattenCountValue.Value = 0
-				flattenCountValue.Parent = targetDough.instance
-			end
-
-			-- Scale the dough
-			local newSize = Vector3.new(
-				originalSize.X * newScaleFactor,
-				originalSize.Y * newScaleFactor,
-				originalSize.Z * newScaleFactor
-			)
-
-			-- Tween to new size
-			TweenService
-				:Create(targetDough.instance, TweenInfo.new(0.5, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {
-					Size = newSize,
-				})
-				:Play()
-
-			-- Remove all the doughs that were combined
-			for _, dough in ipairs(doughsToRemove) do
-				-- Play vanish effect
-				local vanishTween = TweenService:Create(
-					dough.instance,
-					TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-					{
-						Size = Vector3.new(0.1, 0.1, 0.1),
-						Transparency = 1,
-					}
-				)
-
-				vanishTween:Play()
-
-				vanishTween.Completed:Connect(function()
-					DragSystem.untrackObject(dough)
-					dough:cleanup()
-				end)
-			end
-
-			-- Display success message
-			local successMsg = Instance.new("ScreenGui")
-			successMsg.Name = "CombineSuccess"
-			successMsg.ResetOnSpawn = false
-			successMsg.Parent = PlayerGui
-
-			local msgFrame = Instance.new("Frame")
-			msgFrame.Size = UDim2.new(0, 300, 0, 60)
-			msgFrame.Position = UDim2.new(0.5, -150, 0.7, 0)
-			msgFrame.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
-			msgFrame.BackgroundTransparency = 0.2
-			msgFrame.BorderSizePixel = 0
-
-			local msgCorner = Instance.new("UICorner")
-			msgCorner.CornerRadius = UDim.new(0, 10)
-			msgCorner.Parent = msgFrame
-
-			local msgText = Instance.new("TextLabel")
-			msgText.Size = UDim2.new(1, -20, 1, -20)
-			msgText.Position = UDim2.new(0, 10, 0, 10)
-			msgText.BackgroundTransparency = 1
-			msgText.Text = string.format("Combined %d doughs successfully!", #doughsToRemove)
-			msgText.TextColor3 = Color3.fromRGB(255, 255, 255)
-			msgText.TextSize = 16
-			msgText.Font = Enum.Font.GothamBold
-			msgText.Parent = msgFrame
-
-			msgFrame.Parent = successMsg
-
-			-- Animate in and out
-			msgFrame.Position = UDim2.new(0.5, -150, 1.1, 0)
-			TweenService:Create(msgFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-				Position = UDim2.new(0.5, -150, 0.7, 0),
-			}):Play()
-
-			-- Remove after 3 seconds
-			task.delay(3, function()
-				TweenService:Create(msgFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
-					Position = UDim2.new(0.5, -150, 1.1, 0),
-				}):Play()
-
-				task.delay(0.5, function()
-					successMsg:Destroy()
-				end)
-			end)
-
-			-- End combine mode
-			CombineSystem.endCombine()
 		elseif input.KeyCode == Enum.KeyCode.E then
-			-- Cancel combine
-			CombineSystem.endCombine()
+			-- Cancel combine mode
+			exitCombineMode()
+		elseif input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.KeypadEnter then
+			-- Complete the combine operation
+			combineSelectedDoughs()
 		end
 	end)
 
+	-- Handle mouse button up for selection
 	inputEnded = UserInputService.InputEnded:Connect(function(input, gameProcessed)
 		if gameProcessed then
 			return
 		end
 
 		if input.UserInputType == Enum.UserInputType.MouseButton1 and selectionStartPos then
-			-- End selection box
+			-- Hide the selection box
 			selectionBox.Visible = false
+
+			-- If the selection box is very small, treat it as a click
+			local endPos = Vector2.new(input.Position.X, input.Position.Y)
+			local deltaSize = (endPos - selectionStartPos).Magnitude
+
+			if deltaSize < 10 then
+				-- Cast a ray to see if a dough was clicked
+				local ray = camera:ScreenPointToRay(endPos.X, endPos.Y)
+				local raycastParams = RaycastParams.new()
+				raycastParams.FilterType = Enum.RaycastFilterType.Whitelist
+
+				-- Create a table of valid dough instances for raycast filtering
+				local doughInstances = {}
+				local trackedObjects = DragSystem.getTrackedObjects()
+
+				-- Track IDs we've already processed to prevent duplicates
+				local processedIds = {}
+
+				for _, obj in ipairs(trackedObjects) do
+					-- Explicitly validate object has a valid instance with a parent
+					if not obj or not obj.instance or not obj.instance.Parent then
+						continue
+					end
+
+					-- Skip target and non-client owned
+					if obj == targetDough or not isDough(obj) or not clientOwnsDough(obj) then
+						continue
+					end
+
+					-- Get the dough ID
+					local doughId = obj.instance:GetAttribute("DoughId")
+					if not doughId then
+						continue
+					end
+
+					-- Skip if we've already processed this ID
+					if processedIds[doughId] then
+						continue
+					end
+
+					-- Mark as processed
+					processedIds[doughId] = true
+
+					-- Add to instances for raycast
+					table.insert(doughInstances, obj.instance)
+				end
+
+				raycastParams.FilterDescendantsInstances = doughInstances
+
+				local result = Workspace:Raycast(ray.Origin, ray.Direction * 100, raycastParams)
+
+				if result and result.Instance then
+					-- Find the object that owns this instance
+					for _, obj in ipairs(trackedObjects) do
+						-- Skip invalid objects
+						if not obj or not obj.instance or not obj.instance.Parent then
+							continue
+						end
+
+						if obj.instance == result.Instance and obj ~= targetDough and clientOwnsDough(obj) then
+							local doughId = obj.instance:GetAttribute("DoughId")
+							if doughId then
+								print("Click-selecting client-owned dough ID:", doughId)
+
+								-- Toggle the highlight for this dough
+								if selectionHighlights[obj] then
+									-- Remove highlight
+									if selectionHighlights[obj].Parent then
+										selectionHighlights[obj]:Destroy()
+									end
+									selectionHighlights[obj] = nil
+
+									-- Remove from selectedDoughs array
+									for i, selectedDough in ipairs(selectedDoughs) do
+										if selectedDough == obj then
+											table.remove(selectedDoughs, i)
+											break
+										end
+									end
+
+									print("Unselected dough ID:", doughId)
+								else
+									-- Add highlight
+									highlightDough(obj)
+
+									-- Check if dough is already in the selected list
+									local alreadySelected = false
+									for _, selectedDough in ipairs(selectedDoughs) do
+										if selectedDough == obj then
+											alreadySelected = true
+											break
+										end
+									end
+
+									-- Add to selectedDoughs array only if not already there
+									if not alreadySelected then
+										table.insert(selectedDoughs, obj)
+										print("Selected dough ID:", doughId)
+									else
+										print("Dough already selected, ignoring")
+									end
+								end
+
+								-- Update the selection count
+								updateSelectionCount()
+								break
+							end
+						end
+					end
+				end
+			else
+				-- Process the selection box results
+				findDoughsInSelectionBox(selectionStartPos.X, selectionStartPos.Y, endPos.X, endPos.Y)
+			end
+
+			-- Reset the selection start position
 			selectionStartPos = nil
 		end
 	end)
 
+	-- Handle mouse movement for selection box
 	inputChanged = UserInputService.InputChanged:Connect(function(input, gameProcessed)
 		if gameProcessed then
 			return
 		end
 
 		if input.UserInputType == Enum.UserInputType.MouseMovement and selectionStartPos then
-			-- Update selection box size and position
+			-- Update the selection box size and position
 			local currentPos = Vector2.new(input.Position.X, input.Position.Y)
 			local topLeft =
 				Vector2.new(math.min(selectionStartPos.X, currentPos.X), math.min(selectionStartPos.Y, currentPos.Y))
 			local size =
 				Vector2.new(math.abs(currentPos.X - selectionStartPos.X), math.abs(currentPos.Y - selectionStartPos.Y))
 
-			selectionBox.Position = UDim2.new(0, topLeft.X, 0, topLeft.Y)
-			selectionBox.Size = UDim2.new(0, size.X, 0, size.Y)
-
-			-- Find doughs in the box
-			findDoughsInSelectionBox(selectionStartPos.X, selectionStartPos.Y, currentPos.X, currentPos.Y)
+			selectionBox.Position = UDim2.fromOffset(topLeft.X, topLeft.Y)
+			selectionBox.Size = UDim2.fromOffset(size.X, size.Y)
 		end
 	end)
 
-	-- Make DragSystem inactive during combine
-	DragSystem.setSlicingActive(true) -- Reusing the slicing active state to prevent dragging
-
+	-- Store the UI for cleanup
 	selectionUI = selectionBoxGui
-
-	-- Return cleanup function
-	return function()
-		CombineSystem.endCombine()
-	end
-end
-
--- Function to end combine mode
-function CombineSystem.endCombine()
-	print("Ending combine mode")
-
-	-- Disconnect input connections
-	if inputStarted then
-		inputStarted:Disconnect()
-		inputStarted = nil
-	end
-	if inputEnded then
-		inputEnded:Disconnect()
-		inputEnded = nil
-	end
-	if inputChanged then
-		inputChanged:Disconnect()
-		inputChanged = nil
-	end
-
-	-- Re-enable all click detectors
-	for clickDetector, originalDistance in pairs(disabledClickDetectors) do
-		if clickDetector and clickDetector:IsDescendantOf(game) then
-			clickDetector.MaxActivationDistance = originalDistance
-		end
-	end
-	disabledClickDetectors = {}
-
-	-- Clean up all highlights
-	removeAllHighlights()
-
-	-- Clear selected doughs
-	selectedDoughs = {}
-
-	-- Remove UI
-	if selectionUI then
-		selectionUI:Destroy()
-		selectionUI = nil
-	end
-
-	-- Remove instructions
-	if combineInstructions then
-		combineInstructions:Destroy()
-		combineInstructions = nil
-	end
-
-	-- Reset target dough
-	targetDough = nil
-
-	-- Reset selection state
-	selectionStartPos = nil
-	selectionBox = nil
-
-	-- Re-enable dragging
-	DragSystem.setSlicingActive(false)
-
-	-- Reset combine flag
-	isCombineActive = false
-end
-
--- Check if combine mode is active
-function CombineSystem.isCombineActive()
-	return isCombineActive
 end
 
 return CombineSystem

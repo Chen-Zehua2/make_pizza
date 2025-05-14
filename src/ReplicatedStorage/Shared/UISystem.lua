@@ -4,11 +4,20 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local SliceSystem = require(ReplicatedStorage.Shared.SliceSystem)
 local BaseClass = require(ReplicatedStorage.Shared.BaseClass)
 
-local player = Players.LocalPlayer
-local PlayerGui = player:WaitForChild("PlayerGui")
+-- Check if we're running on client or server
+local isClient = RunService:IsClient()
+
+-- Client-only variables
+local player
+local PlayerGui
+if isClient then
+	player = Players.LocalPlayer
+	PlayerGui = player:WaitForChild("PlayerGui")
+end
 
 local UISystem = {}
 
@@ -18,6 +27,11 @@ local uiClickHandler = nil
 
 -- Function to show UI when an object is clicked
 function UISystem.showObjectUI(object)
+	-- Only run on client
+	if not isClient then
+		return
+	end
+
 	-- Clean up previous UI if it exists
 	if currentUI then
 		if uiClickHandler then
@@ -250,8 +264,6 @@ function UISystem.showObjectUI(object)
 			uiClickHandler = nil
 		end
 	end)
-
-	return billboardGui
 end
 
 -- Close any open UI

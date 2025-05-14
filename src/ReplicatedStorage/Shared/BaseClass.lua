@@ -4,6 +4,11 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+
+-- Check if we're running on client or server
+local isClient = RunService:IsClient()
+local isServer = RunService:IsServer()
 
 local BaseClass = {}
 BaseClass.__index = BaseClass
@@ -30,8 +35,13 @@ function BaseClass.new(params)
 	-- Instance for the part
 	self.instance = nil
 
-	-- Create the physical instance
-	self:create()
+	-- If an instance is directly provided, use it without creating a new one
+	if params.instance then
+		self.instance = params.instance
+	-- Otherwise, create the physical instance if we're on the server
+	elseif isServer then
+		self:create()
+	end
 
 	-- Define available options for base objects with fixed colors
 	-- This will be loaded by the UI system
@@ -58,6 +68,12 @@ end
 
 -- Create the physical instance of the base
 function BaseClass:create()
+	-- Only server should create actual instances
+	if isClient and not isServer then
+		warn("Attempt to create instance on client, this should only happen on server")
+		return nil
+	end
+
 	-- Create the base part
 	local part = Instance.new("Part")
 	part.Name = self.name
@@ -90,6 +106,12 @@ function BaseClass:create()
 	sizeValueObj.Value = self.sizeValue
 	sizeValueObj.Parent = part
 
+	-- Add flatten count value
+	local flattenCountValue = Instance.new("IntValue")
+	flattenCountValue.Name = "FlattenCount"
+	flattenCountValue.Value = self.flattenCount
+	flattenCountValue.Parent = part
+
 	-- Scale the base based on its size value
 	local scaleFactor = sizeValueObj.Value ^ (1 / 3) -- Cube root for 3D scaling
 	part.Size = Vector3.new(self.size.X * scaleFactor, self.size.Y * scaleFactor, self.size.Z * scaleFactor)
@@ -117,14 +139,17 @@ function BaseClass:flatten(amount)
 	-- Update flatten count
 	self.flattenCount = self.flattenCount + 1
 
-	-- Store flatten count in instance for persistence
-	if not self.instance:FindFirstChild("FlattenCount") then
-		local flattenCountValue = Instance.new("IntValue")
-		flattenCountValue.Name = "FlattenCount"
-		flattenCountValue.Value = self.flattenCount
-		flattenCountValue.Parent = self.instance
-	else
-		self.instance.FlattenCount.Value = self.flattenCount
+	-- If on server, update the IntValue
+	if isServer then
+		-- Store flatten count in instance for persistence
+		if not self.instance:FindFirstChild("FlattenCount") then
+			local flattenCountValue = Instance.new("IntValue")
+			flattenCountValue.Name = "FlattenCount"
+			flattenCountValue.Value = self.flattenCount
+			flattenCountValue.Parent = self.instance
+		else
+			self.instance.FlattenCount.Value = self.flattenCount
+		end
 	end
 
 	local currentSize = self.instance.Size
@@ -206,6 +231,11 @@ function BaseClass:performSlice(sliceStart, sliceEnd)
 
 	print("Slicing " .. self.name .. " with ratio:", string.format("%.2f/%.2f", sizeValue1, sizeValue2))
 
+	-- Only server should actually create new pieces
+	if not isServer then
+		return nil, nil
+	end
+
 	-- Create the two new pieces
 	local params1 = {
 		name = self.name,
@@ -239,30 +269,10 @@ function BaseClass:performSlice(sliceStart, sliceEnd)
 	local newInstance2 = objClass.new(params2)
 
 	-- Destroy the original instance
-	self.instance:Destroy()
-	self.instance = nil
-
-	-- Create a slicing effect
-	local sliceEffect = Instance.new("Part")
-	sliceEffect.Anchored = true
-	sliceEffect.CanCollide = false
-	sliceEffect.Size = Vector3.new(partSize.X * 2, 0.1, 0.1)
-	sliceEffect.CFrame = CFrame.lookAt(sliceStart, sliceEnd) * CFrame.new(0, 0, -(sliceStart - sliceEnd).Magnitude / 2)
-	sliceEffect.Material = Enum.Material.Neon
-	sliceEffect.Color = Color3.fromRGB(255, 0, 0)
-	sliceEffect.Transparency = 0
-	sliceEffect.Parent = Workspace
-
-	-- Animate the effect
-	TweenService:Create(sliceEffect, TweenInfo.new(0.3), {
-		Transparency = 1,
-		Size = Vector3.new(sliceEffect.Size.X, 0.5, 0.5),
-	}):Play()
-
-	-- Remove the effect after animation
-	task.delay(0.3, function()
-		sliceEffect:Destroy()
-	end)
+	if self.instance then
+		self.instance:Destroy()
+		self.instance = nil
+	end
 
 	return newInstance1, newInstance2
 end

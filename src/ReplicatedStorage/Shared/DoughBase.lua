@@ -2,7 +2,12 @@
 -- Dough object that inherits from BaseClass
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local BaseClass = require(ReplicatedStorage.Shared.BaseClass)
+
+-- Check if we're running on client or server
+local isClient = RunService:IsClient()
+local isServer = RunService:IsServer()
 
 local DoughBase = {}
 DoughBase.__index = DoughBase
@@ -62,17 +67,44 @@ end
 
 -- Keep flatten method for backward compatibility and clean inheritance
 function DoughBase:flatten(amount)
-	-- Call the parent class's flatten method for consistent behavior
-	BaseClass.flatten(self, amount)
+	-- If we're on the client, only use the remote event and don't call BaseClass.flatten
+	if isClient then
+		-- Get the DoughId from the instance attributes
+		local doughId = self.instance and self.instance:GetAttribute("DoughId")
+		if doughId then
+			-- Require DoughRemotes only when needed
+			local DoughRemotes = require(ReplicatedStorage.Shared.DoughRemotes)
+			DoughRemotes.FlattenDough:FireServer(doughId, amount)
+
+			-- Don't call BaseClass.flatten on client - let the server flatten and sync back
+			-- This avoids the double flattening issue
+			return
+		end
+	end
+
+	-- Only server should actually flatten the dough
+	if isServer then
+		-- Call the parent class's flatten method for consistent behavior
+		BaseClass.flatten(self, amount)
+	end
 end
 
 -- Create a factory function for easy creation of dough objects
 function DoughBase.createDough(position, sizeValue)
-	local params = {
-		position = position,
-		sizeValue = sizeValue,
-	}
-	return DoughBase.new(params)
+	if isClient then
+		-- On client, don't create the actual instance, just request it from server
+		-- Use the DoughClientModule
+		local DoughClientModule = require(ReplicatedStorage.Shared.DoughClientModule)
+		DoughClientModule.createDough(position, sizeValue)
+		return -- Return nil as the dough is created asynchronously
+	elseif isServer then
+		-- On server, create the dough directly
+		local params = {
+			position = position,
+			sizeValue = sizeValue,
+		}
+		return DoughBase.new(params)
+	end
 end
 
 return DoughBase
