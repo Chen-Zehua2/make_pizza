@@ -24,8 +24,11 @@ local DragSystem = {}
 local isDragging = false
 local draggedObject = nil
 local hoveredObject = nil
-local trackedObjects = {}
+local trackedObjects = {} -- Array of tracked objects for iteration
+local trackedObjectsMap = {} -- Map of instance -> object for faster lookup
 local slicingActive = false
+local lastCleanupTime = os.clock()
+local cleanupInterval = 3 -- Clean up every 3 seconds instead of every frame
 
 -- Mouse event connections
 local mouseHoverConn = nil
@@ -47,6 +50,15 @@ function DragSystem.init()
 	mouseDownConn = UserInputService.InputBegan:Connect(DragSystem.onMouseDown)
 	mouseUpConn = UserInputService.InputEnded:Connect(DragSystem.onMouseUp)
 	mouseMoveConn = UserInputService.InputChanged:Connect(DragSystem.onMouseMove)
+
+	-- Set up periodic cleanup
+	RunService.Heartbeat:Connect(function()
+		local currentTime = os.clock()
+		if currentTime - lastCleanupTime >= cleanupInterval then
+			DragSystem.cleanupDestroyedObjects()
+			lastCleanupTime = currentTime
+		end
+	end)
 
 	print("Drag system initialized successfully!")
 end
@@ -83,27 +95,37 @@ function DragSystem.cleanup()
 
 	-- Clear tracked objects
 	trackedObjects = {}
+	trackedObjectsMap = {}
 end
 
 -- Register an object to be tracked for dragging
 function DragSystem.trackObject(object)
 	if not object or not object.instance then
-		return
+		return false
 	end
 
-	-- Store reference to the object
+	-- Skip if already tracking this object
+	if trackedObjectsMap[object.instance] then
+		return true
+	end
+
+	-- Store reference to the object in both array and map
 	table.insert(trackedObjects, object)
+	trackedObjectsMap[object.instance] = object
 
 	return true
 end
 
 -- Unregister an object from being tracked
 function DragSystem.untrackObject(object)
-	if not object then
-		return
+	if not object or not object.instance then
+		return false
 	end
 
-	-- Find the object in our tracking table
+	-- Remove from map
+	trackedObjectsMap[object.instance] = nil
+
+	-- Find and remove from array
 	for i, trackedObj in ipairs(trackedObjects) do
 		if trackedObj == object then
 			table.remove(trackedObjects, i)
@@ -118,20 +140,23 @@ end
 function DragSystem.cleanupDestroyedObjects()
 	local originalCount = #trackedObjects
 	local validObjects = {}
+	local validObjectsMap = {}
 
 	for _, obj in ipairs(trackedObjects) do
 		-- Check if the object and its instance are valid
 		if obj and obj.instance and obj.instance.Parent then
 			table.insert(validObjects, obj)
+			validObjectsMap[obj.instance] = obj
 		end
 	end
 
 	local removedCount = originalCount - #validObjects
 	if removedCount > 0 then
 		print("DragSystem: Cleaned up", removedCount, "destroyed objects")
+		trackedObjects = validObjects
+		trackedObjectsMap = validObjectsMap
 	end
 
-	trackedObjects = validObjects
 	return removedCount
 end
 
@@ -156,7 +181,7 @@ function DragSystem.updateHoverEffect()
 	-- Create a list of objects to check
 	local instances = {}
 	for _, obj in ipairs(trackedObjects) do
-		if obj.instance then
+		if obj.instance and obj.instance.Parent then
 			table.insert(instances, obj.instance)
 		end
 	end
@@ -182,15 +207,13 @@ function DragSystem.updateHoverEffect()
 	if result and result.Instance then
 		local hitInstance = result.Instance
 
-		-- Find which object this instance belongs to
-		for _, obj in ipairs(trackedObjects) do
-			if obj.instance == hitInstance then
-				hoveredObject = obj
-				local highlight = hoveredObject.instance:FindFirstChild("Highlight")
-				if highlight and hoveredObject ~= draggedObject then
-					highlight.Enabled = true
-				end
-				break
+		-- Use map for faster lookup instead of iterating
+		local obj = trackedObjectsMap[hitInstance]
+		if obj then
+			hoveredObject = obj
+			local highlight = hoveredObject.instance:FindFirstChild("Highlight")
+			if highlight and hoveredObject ~= draggedObject then
+				highlight.Enabled = true
 			end
 		end
 	end
@@ -300,14 +323,9 @@ function DragSystem.onMouseMove(input)
 	end
 end
 
--- Function to get an object from its instance
+-- Function to get an object from its instance (now uses map for O(1) lookup)
 function DragSystem.getObjectFromInstance(instance)
-	for _, obj in ipairs(trackedObjects) do
-		if obj.instance == instance then
-			return obj
-		end
-	end
-	return nil
+	return trackedObjectsMap[instance]
 end
 
 -- Function to check if there are tracked objects
@@ -317,8 +335,7 @@ end
 
 -- Function to get all tracked objects
 function DragSystem.getTrackedObjects()
-	-- Clean up destroyed objects before returning the list
-	DragSystem.cleanupDestroyedObjects()
+	-- No longer calling cleanup on every get - it's done on a timer instead
 	return trackedObjects
 end
 

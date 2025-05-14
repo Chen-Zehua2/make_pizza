@@ -78,106 +78,156 @@ local function createDough(position, sizeValue)
 	DoughRemotes.CreateDough:FireServer(position, sizeValue)
 end
 
+local CREATE_RE_MAX_ATTEMPTS = 10
+local create_re_attempts = 0
 -- Connect remote event handlers
 DoughRemotes.CreateDough.OnClientEvent:Connect(function(doughId)
-	-- Server has created a dough, we need to track it
-	local doughInstance = workspace:WaitForChild(doughId, 5)
+	print("Client: Creating dough", doughId)
+	while create_re_attempts < CREATE_RE_MAX_ATTEMPTS do
+		-- Server has created a dough, we need to track it
+		scanWorkspaceForDough()
 
-	if doughInstance then
-		-- Create a client-side representation without creating the actual instance
-		local params = {
-			position = doughInstance.Position,
-			sizeValue = doughInstance:FindFirstChild("SizeValue") and doughInstance.SizeValue.Value or 1,
-			flattenCount = doughInstance:FindFirstChild("FlattenCount") and doughInstance.FlattenCount.Value or 0,
-			instance = doughInstance, -- Use the existing instance instead of creating a new one
-		}
+		create_re_attempts += 1
+		task.wait(0.05)
 
-		-- Create the dough object referencing the existing instance
-		local dough = DoughBase.new(params)
+		-- local doughInstance = workspace:WaitForChild(doughId, 5)
 
-		-- Store it in our tracking table
-		clientDoughs[doughId] = dough
+		-- if doughInstance then
+		-- 	-- Create a client-side representation without creating the actual instance
+		-- 	local params = {
+		-- 		position = doughInstance.Position,
+		-- 		sizeValue = doughInstance:FindFirstChild("SizeValue") and doughInstance.SizeValue.Value or 1,
+		-- 		flattenCount = doughInstance:FindFirstChild("FlattenCount") and doughInstance.FlattenCount.Value or 0,
+		-- 		instance = doughInstance, -- Use the existing instance instead of creating a new one
+		-- 	}
 
-		-- Set up for dragging
-		DragSystem.trackObject(dough)
+		-- 	-- Create the dough object referencing the existing instance
+		-- 	local dough = DoughBase.new(params)
 
-		-- Set up click detector
-		setupClickDetector(dough)
+		-- 	-- Store it in our tracking table
+		-- 	clientDoughs[doughId] = dough
 
-		print("Client: Tracking server dough", doughId)
-	else
-		warn("Client: Failed to find dough instance with ID", doughId)
+		-- 	-- Set up for dragging
+		-- 	DragSystem.trackObject(dough)
+
+		-- 	-- Set up click detector
+		-- 	setupClickDetector(dough)
+
+		-- 	print("Client: Tracking server dough", doughId)
+		-- else
+		-- 	warn("Client: Failed to find dough instance with ID", doughId)
+		-- end
 	end
+
+	create_re_attempts = 0
 end)
 
 DoughRemotes.SliceDough.OnClientEvent:Connect(function(oldDoughId, newDoughId1, newDoughId2)
+	print("Client: Creating dough", doughId)
+	while create_re_attempts < CREATE_RE_MAX_ATTEMPTS do
+		-- Server has created a dough, we need to track it
+		scanWorkspaceForDough()
+
+		create_re_attempts += 1
+		task.wait(0.05)
+
+		-- local doughInstance = workspace:WaitForChild(doughId, 5)
+
+		-- if doughInstance then
+		-- 	-- Create a client-side representation without creating the actual instance
+		-- 	local params = {
+		-- 		position = doughInstance.Position,
+		-- 		sizeValue = doughInstance:FindFirstChild("SizeValue") and doughInstance.SizeValue.Value or 1,
+		-- 		flattenCount = doughInstance:FindFirstChild("FlattenCount") and doughInstance.FlattenCount.Value or 0,
+		-- 		instance = doughInstance, -- Use the existing instance instead of creating a new one
+		-- 	}
+
+		-- 	-- Create the dough object referencing the existing instance
+		-- 	local dough = DoughBase.new(params)
+
+		-- 	-- Store it in our tracking table
+		-- 	clientDoughs[doughId] = dough
+
+		-- 	-- Set up for dragging
+		-- 	DragSystem.trackObject(dough)
+
+		-- 	-- Set up click detector
+		-- 	setupClickDetector(dough)
+
+		-- 	print("Client: Tracking server dough", doughId)
+		-- else
+		-- 	warn("Client: Failed to find dough instance with ID", doughId)
+		-- end
+	end
+
+	create_re_attempts = 0
 	-- Remove the old dough from tracking
-	clientDoughs[oldDoughId] = nil
+	-- clientDoughs[oldDoughId] = nil
 
-	-- Setup function to create and track dough from an instance
-	local function setupDoughInstance(doughInstance, doughId)
-		if not doughInstance then
-			return
-		end
+	-- -- Setup function to create and track dough from an instance
+	-- local function setupDoughInstance(doughInstance, doughId)
+	-- 	if not doughInstance then
+	-- 		return
+	-- 	end
 
-		-- Create client-side representation
-		local params = {
-			position = doughInstance.Position,
-			sizeValue = doughInstance:FindFirstChild("SizeValue") and doughInstance.SizeValue.Value or 1,
-			instance = doughInstance,
-		}
+	-- 	-- Create client-side representation
+	-- 	local params = {
+	-- 		position = doughInstance.Position,
+	-- 		sizeValue = doughInstance:FindFirstChild("SizeValue") and doughInstance.SizeValue.Value or 1,
+	-- 		instance = doughInstance,
+	-- 	}
 
-		-- Create the dough object
-		local dough = DoughBase.new(params)
+	-- 	-- Create the dough object
+	-- 	local dough = DoughBase.new(params)
 
-		-- Store in tracking table
-		clientDoughs[doughId] = dough
+	-- 	-- Store in tracking table
+	-- 	clientDoughs[doughId] = dough
 
-		-- Set up for dragging immediately
-		DragSystem.trackObject(dough)
+	-- 	-- Set up for dragging immediately
+	-- 	DragSystem.trackObject(dough)
 
-		-- Set up click detector
-		setupClickDetector(dough)
+	-- 	-- Set up click detector
+	-- 	setupClickDetector(dough)
 
-		print("Client: Successfully tracked sliced dough", doughId)
-	end
+	-- 	print("Client: Successfully tracked sliced dough", doughId)
+	-- end
 
-	-- Server has created two new doughs from slicing, we need to track them
-	-- Use a more aggressive approach to find the new instances quickly
-	local function findAndSetupDough(doughId, maxAttempts)
-		maxAttempts = maxAttempts or 5
-		local attempts = 0
+	-- -- Server has created two new doughs from slicing, we need to track them
+	-- -- Use a more aggressive approach to find the new instances quickly
+	-- local function findAndSetupDough(doughId, maxAttempts)
+	-- 	maxAttempts = maxAttempts or 5
+	-- 	local attempts = 0
 
-		-- Try to find immediately first
-		local instance = workspace:FindFirstChild(doughId)
-		if instance then
-			setupDoughInstance(instance, doughId)
-			return true
-		end
+	-- 	-- Try to find immediately first
+	-- 	local instance = workspace:FindFirstChild(doughId)
+	-- 	if instance then
+	-- 		setupDoughInstance(instance, doughId)
+	-- 		return true
+	-- 	end
 
-		-- If not found, wait and retry a few times
-		local success = false
-		task.spawn(function()
-			while attempts < maxAttempts and not success do
-				attempts = attempts + 1
-				instance = workspace:FindFirstChild(doughId) or workspace:WaitForChild(doughId, 0.2)
-				if instance then
-					setupDoughInstance(instance, doughId)
-					success = true
-					return
-				end
-				task.wait(0.1) -- Short wait between attempts
-			end
+	-- 	-- If not found, wait and retry a few times
+	-- 	local success = false
+	-- 	task.spawn(function()
+	-- 		while attempts < maxAttempts and not success do
+	-- 			attempts = attempts + 1
+	-- 			instance = workspace:FindFirstChild(doughId) or workspace:WaitForChild(doughId, 0.2)
+	-- 			if instance then
+	-- 				setupDoughInstance(instance, doughId)
+	-- 				success = true
+	-- 				return
+	-- 			end
+	-- 			task.wait(0.1) -- Short wait between attempts
+	-- 		end
 
-			if not success then
-				warn("Client: Failed to find sliced dough instance with ID", doughId, "after multiple attempts")
-			end
-		end)
-	end
+	-- 		if not success then
+	-- 			warn("Client: Failed to find sliced dough instance with ID", doughId, "after multiple attempts")
+	-- 		end
+	-- 	end)
+	-- end
 
-	-- Try to find and setup both new dough pieces
-	findAndSetupDough(newDoughId1, 10)
-	findAndSetupDough(newDoughId2, 10)
+	-- -- Try to find and setup both new dough pieces
+	-- findAndSetupDough(newDoughId1, 10)
+	-- findAndSetupDough(newDoughId2, 10)
 end)
 
 DoughRemotes.CombineDoughs.OnClientEvent:Connect(function(targetDoughId, doughsToRemoveIds, totalSizeValue)
@@ -268,7 +318,7 @@ local function ensureAllDoughsInteractive()
 end
 
 -- Scan workspace for existing dough objects and track them
-local function scanWorkspaceForDough()
+function scanWorkspaceForDough()
 	for _, child in pairs(workspace:GetChildren()) do
 		if child:IsA("Part") or child:IsA("MeshPart") then
 			local doughId = child:GetAttribute("DoughId")

@@ -381,20 +381,34 @@ function CombineSystem.startCombining(dough)
 			end
 		end
 
+		-- Track dough IDs to prevent duplicates
+		local processedDoughIds = {}
+
 		-- Get all tracked objects from the drag system
 		local trackedObjects = DragSystem.getTrackedObjects()
-		print("Total tracked objects after cleanup:", #trackedObjects)
-
-		-- Create a table to track dough IDs we've already processed to prevent duplicates
-		local processedDoughIds = {}
-		local clientOwnedCount = 0
 		local selectedCount = 0
+
+		-- Create a camera-based selection filter
+		local screenCenter = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+		local maxDistance = Vector2.new(camera.ViewportSize.X, camera.ViewportSize.Y).Magnitude / 2
+
+		-- Fast early filter based on screen position
+		-- Create a table to cache screen positions to avoid recomputing
+		local screenPositions = {}
+
+		-- For faster position calculations
+		local function getScreenPosition(obj)
+			if not screenPositions[obj] and obj.instance and obj.instance.Parent then
+				screenPositions[obj] = camera:WorldToScreenPoint(obj.instance.Position)
+			end
+			return screenPositions[obj]
+		end
 
 		print("Starting box selection with box coordinates:", x1, y1, "to", x2, y2)
 
-		-- First, get candidate doughs that are valid for selection
+		-- Process all objects at once instead of nested loops
 		for _, obj in ipairs(trackedObjects) do
-			-- Explicitly validate that the object has a valid instance with a parent
+			-- Skip invalid objects
 			if not obj or not obj.instance or not obj.instance.Parent then
 				continue
 			end
@@ -404,29 +418,18 @@ function CombineSystem.startCombining(dough)
 				continue
 			end
 
-			clientOwnedCount = clientOwnedCount + 1
-
 			-- Get the dough ID to prevent duplicates
 			local doughId = obj.instance:GetAttribute("DoughId")
-			if not doughId then
-				print("Skipping dough with no ID")
-				continue
-			end
-
-			-- Skip if we've already processed this dough ID
-			if processedDoughIds[doughId] then
-				print("Skipping already processed dough ID:", doughId)
+			if not doughId or processedDoughIds[doughId] then
 				continue
 			end
 
 			-- Mark this dough ID as processed
 			processedDoughIds[doughId] = true
 
-			-- Convert the object's 3D position to screen position
-			local screenPos = camera:WorldToScreenPoint(obj.instance.Position)
-
-			-- Skip if behind camera
-			if screenPos.Z <= 0 then
+			-- Get screen position (with caching)
+			local screenPos = getScreenPosition(obj)
+			if not screenPos or screenPos.Z <= 0 then
 				continue
 			end
 
@@ -438,17 +441,44 @@ function CombineSystem.startCombining(dough)
 
 				-- Highlight the dough
 				highlightDough(obj)
-
-				print("Selected dough ID:", doughId, "at screen position", screenPos.X, screenPos.Y)
 			end
 		end
 
-		print("Client owns", clientOwnedCount, "doughs")
 		print("Selected", selectedCount, "unique doughs in box selection")
-		print("Selected doughs array length:", #selectedDoughs)
 
 		-- Update the selection count display
 		updateSelectionCount()
+	end
+
+	-- Create an efficient set of client-owned dough instances for raycasting
+	local function getClientOwnedDoughInstances()
+		local result = {}
+		local processedIds = {}
+
+		for _, obj in ipairs(DragSystem.getTrackedObjects()) do
+			-- Skip invalid objects, the target, and non-client owned
+			if not obj or not obj.instance or not obj.instance.Parent then
+				continue
+			end
+
+			if obj == targetDough or not isDough(obj) or not clientOwnsDough(obj) then
+				continue
+			end
+
+			-- Get the dough ID
+			local doughId = obj.instance:GetAttribute("DoughId")
+			if not doughId or processedIds[doughId] then
+				continue
+			end
+
+			-- Mark as processed
+			processedIds[doughId] = true
+
+			-- Add to instances for raycast
+			table.insert(result, obj.instance)
+		end
+
+		return result
 	end
 
 	-- Function to combine all selected dough objects with the target
@@ -488,45 +518,23 @@ function CombineSystem.startCombining(dough)
 		-- Track the target dough ID to prevent selecting it
 		processedDoughIds[targetDoughId] = true
 
-		-- Log selected doughs before validation
-		print("Before validation - Selected doughs count:", #selectedDoughs)
-
-		-- Validate each dough and build the list of doughs to combine
+		-- Optimize validation by using a single pass through the selected doughs
 		for _, dough in ipairs(selectedDoughs) do
-			-- Skip invalid doughs or the target
-			if not dough or not dough.instance or dough == targetDough then
+			-- Skip invalid objects or the target
+			if not dough or not dough.instance or not dough.instance.Parent or dough == targetDough then
 				continue
 			end
 
-			-- Get the dough ID
+			-- Get dough ID and check validity
 			local doughId = dough.instance:GetAttribute("DoughId")
-			if not doughId then
-				print("Skipping dough with no ID")
+			if not doughId or doughId == targetDoughId or processedDoughIds[doughId] or not clientOwnsDough(dough) then
 				continue
 			end
 
-			-- Skip if we've already processed this dough ID or it's the target
-			if processedDoughIds[doughId] then
-				print("Skipping duplicate dough ID:", doughId)
-				continue
-			end
-
-			-- Verify client ownership
-			if not clientOwnsDough(dough) then
-				print("Skipping dough not owned by client, ID:", doughId)
-				continue
-			end
-
-			-- Mark as processed
+			-- Add to the combine list
 			processedDoughIds[doughId] = true
-
-			-- Add to list of doughs to combine
 			table.insert(doughIds, doughId)
-
-			-- Add to total size
 			totalSizeValue = totalSizeValue + (dough.sizeValue or 1)
-
-			print("Validated dough for combining, ID:", doughId)
 		end
 
 		-- Check if we have any doughs to combine
@@ -536,9 +544,7 @@ function CombineSystem.startCombining(dough)
 			return
 		end
 
-		-- Log the final validated doughs being combined
-		print("After validation: Combining", #doughIds, "doughs into target ID =", targetDoughId)
-		print("Selected dough IDs =", table.concat(doughIds, ", "))
+		print("Combining", #doughIds, "doughs into target ID =", targetDoughId)
 
 		-- Send to server with optimized data
 		local DoughRemotes = require(ReplicatedStorage.Shared.DoughRemotes)
@@ -592,102 +598,61 @@ function CombineSystem.startCombining(dough)
 				local raycastParams = RaycastParams.new()
 				raycastParams.FilterType = Enum.RaycastFilterType.Whitelist
 
-				-- Create a table of valid dough instances for raycast filtering
-				local doughInstances = {}
-				local trackedObjects = DragSystem.getTrackedObjects()
-
-				-- Track IDs we've already processed to prevent duplicates
-				local processedIds = {}
-
-				for _, obj in ipairs(trackedObjects) do
-					-- Explicitly validate object has a valid instance with a parent
-					if not obj or not obj.instance or not obj.instance.Parent then
-						continue
-					end
-
-					-- Skip target and non-client owned
-					if obj == targetDough or not isDough(obj) or not clientOwnsDough(obj) then
-						continue
-					end
-
-					-- Get the dough ID
-					local doughId = obj.instance:GetAttribute("DoughId")
-					if not doughId then
-						continue
-					end
-
-					-- Skip if we've already processed this ID
-					if processedIds[doughId] then
-						continue
-					end
-
-					-- Mark as processed
-					processedIds[doughId] = true
-
-					-- Add to instances for raycast
-					table.insert(doughInstances, obj.instance)
-				end
-
-				raycastParams.FilterDescendantsInstances = doughInstances
+				-- Get valid dough instances efficiently using the helper function
+				raycastParams.FilterDescendantsInstances = getClientOwnedDoughInstances()
 
 				local result = Workspace:Raycast(ray.Origin, ray.Direction * 100, raycastParams)
 
 				if result and result.Instance then
-					-- Find the object that owns this instance
-					for _, obj in ipairs(trackedObjects) do
-						-- Skip invalid objects
-						if not obj or not obj.instance or not obj.instance.Parent then
-							continue
-						end
+					-- Get the owner object using the optimized map lookup
+					local obj = DragSystem.getObjectFromInstance(result.Instance)
 
-						if obj.instance == result.Instance and obj ~= targetDough and clientOwnsDough(obj) then
-							local doughId = obj.instance:GetAttribute("DoughId")
-							if doughId then
-								print("Click-selecting client-owned dough ID:", doughId)
+					if obj and obj ~= targetDough and clientOwnsDough(obj) then
+						local doughId = obj.instance:GetAttribute("DoughId")
+						if doughId then
+							print("Click-selecting client-owned dough ID:", doughId)
 
-								-- Toggle the highlight for this dough
-								if selectionHighlights[obj] then
-									-- Remove highlight
-									if selectionHighlights[obj].Parent then
-										selectionHighlights[obj]:Destroy()
-									end
-									selectionHighlights[obj] = nil
+							-- Toggle the highlight for this dough
+							if selectionHighlights[obj] then
+								-- Remove highlight
+								if selectionHighlights[obj].Parent then
+									selectionHighlights[obj]:Destroy()
+								end
+								selectionHighlights[obj] = nil
 
-									-- Remove from selectedDoughs array
-									for i, selectedDough in ipairs(selectedDoughs) do
-										if selectedDough == obj then
-											table.remove(selectedDoughs, i)
-											break
-										end
-									end
-
-									print("Unselected dough ID:", doughId)
-								else
-									-- Add highlight
-									highlightDough(obj)
-
-									-- Check if dough is already in the selected list
-									local alreadySelected = false
-									for _, selectedDough in ipairs(selectedDoughs) do
-										if selectedDough == obj then
-											alreadySelected = true
-											break
-										end
-									end
-
-									-- Add to selectedDoughs array only if not already there
-									if not alreadySelected then
-										table.insert(selectedDoughs, obj)
-										print("Selected dough ID:", doughId)
-									else
-										print("Dough already selected, ignoring")
+								-- Remove from selectedDoughs array
+								for i, selectedDough in ipairs(selectedDoughs) do
+									if selectedDough == obj then
+										table.remove(selectedDoughs, i)
+										break
 									end
 								end
 
-								-- Update the selection count
-								updateSelectionCount()
-								break
+								print("Unselected dough ID:", doughId)
+							else
+								-- Add highlight
+								highlightDough(obj)
+
+								-- Check if dough is already in the selected list
+								local alreadySelected = false
+								for _, selectedDough in ipairs(selectedDoughs) do
+									if selectedDough == obj then
+										alreadySelected = true
+										break
+									end
+								end
+
+								-- Add to selectedDoughs array only if not already there
+								if not alreadySelected then
+									table.insert(selectedDoughs, obj)
+									print("Selected dough ID:", doughId)
+								else
+									print("Dough already selected, ignoring")
+								end
 							end
+
+							-- Update the selection count
+							updateSelectionCount()
 						end
 					end
 				end
