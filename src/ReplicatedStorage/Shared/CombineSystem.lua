@@ -177,6 +177,19 @@ function CombineSystem.startCombining(dough)
 		return
 	end
 
+	-- Check doneness value before allowing combine
+	local doneness = 0
+	if dough.instance:FindFirstChild("Doneness") then
+		doneness = dough.instance.Doneness.Value
+	elseif dough.doneness then
+		doneness = dough.doneness
+	end
+
+	if doneness > 0 then
+		print("Cannot combine: dough has already started cooking (doneness > 0)")
+		return
+	end
+
 	-- Store the target dough
 	targetDough = dough
 
@@ -500,6 +513,20 @@ function CombineSystem.startCombining(dough)
 			return
 		end
 
+		-- Check target dough doneness
+		local targetDoneness = 0
+		if targetDough.instance:FindFirstChild("Doneness") then
+			targetDoneness = targetDough.instance.Doneness.Value
+		elseif targetDough.doneness then
+			targetDoneness = targetDough.doneness
+		end
+
+		if targetDoneness > 0 then
+			print("Cannot combine: target dough has already started cooking (doneness > 0)")
+			exitCombineMode()
+			return
+		end
+
 		print("Combining", #selectedDoughs, "doughs into", targetDough.name)
 
 		-- Create a table to track dough IDs we've already processed
@@ -528,6 +555,19 @@ function CombineSystem.startCombining(dough)
 			-- Get dough ID and check validity
 			local doughId = dough.instance:GetAttribute("DoughId")
 			if not doughId or doughId == targetDoughId or processedDoughIds[doughId] or not clientOwnsDough(dough) then
+				continue
+			end
+
+			-- Check doneness value
+			local doughDoneness = 0
+			if dough.instance:FindFirstChild("Doneness") then
+				doughDoneness = dough.instance.Doneness.Value
+			elseif dough.doneness then
+				doughDoneness = dough.doneness
+			end
+
+			if doughDoneness > 0 then
+				print("Skipping dough ID " .. doughId .. ": already cooking (doneness > 0)")
 				continue
 			end
 

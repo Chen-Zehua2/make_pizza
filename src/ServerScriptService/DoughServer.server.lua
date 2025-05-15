@@ -34,6 +34,73 @@ local instanceToObjectMap = {}
 -- Assign a unique ID to each dough
 local nextDoughId = 1
 
+-- Function to adjust dough appearance based on flatten count and doneness
+local function adjustDoughAppearance(dough)
+	if not dough or not dough.instance then
+		return
+	end
+
+	local flattenCount = dough.flattenCount or 0
+	local doneness = dough.doneness or 0
+
+	-- Get values from instance if they exist
+	if dough.instance:FindFirstChild("FlattenCount") then
+		flattenCount = dough.instance.FlattenCount.Value
+	end
+	if dough.instance:FindFirstChild("Doneness") then
+		doneness = dough.instance.Doneness.Value
+	end
+
+	-- Adjust size based on flatten count
+	if flattenCount > 0 then
+		-- Get original size before flattening
+		local originalSize = dough.size
+		local sizeValue = dough.sizeValue or 1
+
+		-- Calculate scale factor based on size value (for volume)
+		local scaleFactor = sizeValue ^ (1 / 3) -- Cube root for 3D scaling
+
+		-- Apply flatten effect (decrease Y, increase X and Z)
+		local flattenFactor = math.min(0.1 + (0.9 / (flattenCount + 1)), 1)
+		local spreadFactor = math.sqrt(1 / flattenFactor) -- Preserve volume
+
+		-- Calculate final size
+		local newSize = Vector3.new(
+			originalSize.X * scaleFactor * spreadFactor,
+			originalSize.Y * scaleFactor * flattenFactor,
+			originalSize.Z * scaleFactor * spreadFactor
+		)
+
+		-- Update instance size
+		dough.instance.Size = newSize
+	end
+
+	-- Adjust color based on doneness
+	if doneness > 0 then
+		local baseColor = Color3.fromRGB(235, 213, 179) -- Raw dough color
+
+		if doneness < 120 then
+			-- Raw dough - no color change
+			dough.instance.Color = baseColor
+		elseif doneness < 300 then
+			-- Slightly baked - light brown tint
+			dough.instance.Color = Color3.fromRGB(226, 203, 159)
+		elseif doneness < 500 then
+			-- Half-baked - medium brown
+			dough.instance.Color = Color3.fromRGB(218, 187, 130)
+		elseif doneness < 600 then
+			-- Well-baked - darker brown
+			dough.instance.Color = Color3.fromRGB(200, 158, 96)
+		elseif doneness <= 900 then
+			-- Perfectly baked - golden brown
+			dough.instance.Color = Color3.fromRGB(180, 132, 60)
+		else
+			-- Burnt - dark brown to black
+			dough.instance.Color = Color3.fromRGB(100, 70, 30)
+		end
+	end
+end
+
 -- Function to create a server-side dough object
 local function createServerDough(params, playerId)
 	-- Create a new dough with the given parameters
@@ -59,6 +126,9 @@ local function createServerDough(params, playerId)
 		clickDetector.MaxActivationDistance = 20
 		clickDetector.Parent = dough.instance
 	end
+
+	-- Adjust appearance based on doneness and flatten count
+	adjustDoughAppearance(dough)
 
 	return doughId, dough
 end
@@ -228,6 +298,10 @@ DoughRemotes.SliceDough.OnServerEvent:Connect(function(player, doughId, sliceDat
 		clickDetector2.Parent = newDough2.instance
 	end
 
+	-- Adjust appearance based on doneness and flatten count
+	adjustDoughAppearance(newDough1)
+	adjustDoughAppearance(newDough2)
+
 	-- Notify the client about the sliced doughs
 	DoughRemotes.SliceDough:FireClient(player, doughId, doughId1, doughId2)
 
@@ -286,13 +360,10 @@ DoughRemotes.CombineDoughs.OnServerEvent:Connect(function(player, targetDoughId,
 		highestDoneness = targetDough.instance.Doneness.Value
 	end
 
-	-- Preserve the highest flatten count
-	local highestFlattenCount = targetDough.flattenCount or 0
-	if targetDough.instance:FindFirstChild("FlattenCount") then
-		highestFlattenCount = targetDough.instance.FlattenCount.Value
-	end
+	-- Set flatten count to 0 when combining doughs
+	local flattenCount = 0
 
-	-- Find the highest doneness and flatten count among all doughs being combined
+	-- Find the highest doneness among all doughs being combined
 	for _, doughId in ipairs(doughsToRemoveIds) do
 		local dough = getServerDough(doughId)
 		if dough and dough.instance then
@@ -305,14 +376,7 @@ DoughRemotes.CombineDoughs.OnServerEvent:Connect(function(player, targetDoughId,
 				highestDoneness = doughDoneness
 			end
 
-			-- Check flatten count
-			local doughFlattenCount = 0
-			if dough.instance:FindFirstChild("FlattenCount") then
-				doughFlattenCount = dough.instance.FlattenCount.Value
-			end
-			if doughFlattenCount > highestFlattenCount then
-				highestFlattenCount = doughFlattenCount
-			end
+			-- We're not checking flatten count anymore as we're setting it to 0
 		end
 	end
 
@@ -322,16 +386,19 @@ DoughRemotes.CombineDoughs.OnServerEvent:Connect(function(player, targetDoughId,
 		targetDough.instance.Doneness.Value = highestDoneness
 	end
 
-	-- Update flatten count
-	targetDough.flattenCount = highestFlattenCount
+	-- Update flatten count to 0
+	targetDough.flattenCount = flattenCount
 	if targetDough.instance:FindFirstChild("FlattenCount") then
-		targetDough.instance.FlattenCount.Value = highestFlattenCount
+		targetDough.instance.FlattenCount.Value = flattenCount
 	else
 		local flattenCountValue = Instance.new("IntValue")
 		flattenCountValue.Name = "FlattenCount"
-		flattenCountValue.Value = highestFlattenCount
+		flattenCountValue.Value = flattenCount
 		flattenCountValue.Parent = targetDough.instance
 	end
+
+	-- Adjust appearance based on the updated doneness and flatten values
+	adjustDoughAppearance(targetDough)
 
 	-- Remove the doughs that were combined
 	for _, doughId in ipairs(doughsToRemoveIds) do
@@ -370,6 +437,9 @@ DoughRemotes.FlattenDough.OnServerEvent:Connect(function(player, doughId, amount
 	-- Perform the flatten operation
 	dough:flatten(amount)
 
+	-- Adjust appearance based on updated flatten count
+	adjustDoughAppearance(dough)
+
 	-- Notify all clients
 	DoughRemotes.FlattenDough:FireAllClients(doughId, amount)
 
@@ -393,6 +463,9 @@ DoughRemotes.UnflattenDough.OnServerEvent:Connect(function(player, doughId, amou
 
 	-- Perform the unflatten operation
 	dough:unflatten(amount)
+
+	-- Adjust appearance based on updated flatten count
+	adjustDoughAppearance(dough)
 
 	-- Notify all clients
 	DoughRemotes.UnflattenDough:FireAllClients(doughId, amount)

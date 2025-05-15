@@ -203,23 +203,54 @@ function UISystem.showObjectUI(object)
 	-- Get options from the object or use an empty table
 	local options = object.options or {}
 
+	-- Check if object can be manipulated based on doneness
+	local canBeManipulated = true
+	if object.canBeManipulated then
+		canBeManipulated = object:canBeManipulated()
+	else
+		-- Fallback check if doneness > 0
+		canBeManipulated = (doneness <= 0)
+	end
+
+	-- Filter out flatten, unflatten, and combine options if doneness > 0
+	local filteredOptions = {}
+	for _, option in ipairs(options) do
+		if
+			not canBeManipulated
+			and (option.text == "Flatten" or option.text == "Unflatten" or option.text == "Combine")
+		then
+			-- Skip these options
+		else
+			table.insert(filteredOptions, option)
+		end
+	end
+
+	-- Create container for option buttons - will be useful for dynamic updates
+	local buttonsContainer = Instance.new("Frame")
+	buttonsContainer.Name = "ButtonsContainer"
+	buttonsContainer.Size = UDim2.new(1, 0, 0, 0) -- Will be resized based on content
+	buttonsContainer.Position = UDim2.new(0, 0, 0, buttonPositionY)
+	buttonsContainer.BackgroundTransparency = 1
+	buttonsContainer.Parent = mainFrame
+
 	-- If no options provided, show message
-	if #options == 0 then
+	if #filteredOptions == 0 then
 		local noOptions = Instance.new("TextLabel")
 		noOptions.Name = "NoOptions"
 		noOptions.Size = UDim2.new(1, 0, 0, 20)
-		noOptions.Position = UDim2.new(0, 0, 0, buttonPositionY)
+		noOptions.Position = UDim2.new(0, 0, 0, 0)
 		noOptions.BackgroundTransparency = 1
 		noOptions.Text = "No options available"
 		noOptions.TextColor3 = Color3.fromRGB(200, 200, 200)
 		noOptions.TextSize = 14
 		noOptions.Font = Enum.Font.Gotham
-		noOptions.Parent = mainFrame
+		noOptions.Parent = buttonsContainer
 
+		buttonsContainer.Size = UDim2.new(1, 0, 0, 20)
 		billboardGui.Size = UDim2.new(0, 150, 0, 160) -- Adjusted for cooking info
 	else
 		-- Add each button, checking for row layout
-		for i, option in ipairs(options) do
+		for i, option in ipairs(filteredOptions) do
 			-- Check if we need to create a new row or use the current one
 			if option.layout == "row" then
 				-- If this is the first button in a row, create a new container
@@ -227,9 +258,9 @@ function UISystem.showObjectUI(object)
 					currentRow = Instance.new("Frame")
 					currentRow.Name = "ButtonRow"
 					currentRow.Size = UDim2.new(1, 0, 0, buttonHeight)
-					currentRow.Position = UDim2.new(0, 0, 0, rowPositionY)
+					currentRow.Position = UDim2.new(0, 0, 0, rowPositionY - buttonPositionY)
 					currentRow.BackgroundTransparency = 1
-					currentRow.Parent = mainFrame
+					currentRow.Parent = buttonsContainer
 				end
 
 				-- Create the button in the row
@@ -239,7 +270,7 @@ function UISystem.showObjectUI(object)
 
 				-- Position based on whether it's the first or second button in row
 				if option.width == 0.48 or not option.width then
-					if i > 1 and options[i - 1].layout == "row" then
+					if i > 1 and filteredOptions[i - 1].layout == "row" then
 						button.Position = UDim2.new(0.52, 0, 0, 0) -- Second button position
 					else
 						button.Position = UDim2.new(0, 0, 0, 0) -- First button position
@@ -276,7 +307,7 @@ function UISystem.showObjectUI(object)
 				end)
 
 				-- Reset currentRow if this is the last button in the row
-				if i < #options and options[i + 1].layout ~= "row" then
+				if i < #filteredOptions and filteredOptions[i + 1].layout ~= "row" then
 					currentRow = nil
 					rowPositionY = rowPositionY + buttonSpacing
 				end
@@ -287,13 +318,13 @@ function UISystem.showObjectUI(object)
 				local button = Instance.new("TextButton")
 				button.Name = option.text .. "Button"
 				button.Size = UDim2.new(1, 0, 0, buttonHeight)
-				button.Position = UDim2.new(0, 0, 0, rowPositionY)
+				button.Position = UDim2.new(0, 0, 0, rowPositionY - buttonPositionY)
 				button.BackgroundColor3 = option.color -- Use the fixed color defined in the option
 				button.Text = option.text
 				button.TextColor3 = Color3.fromRGB(0, 0, 0)
 				button.TextSize = 16
 				button.Font = Enum.Font.GothamSemibold
-				button.Parent = mainFrame
+				button.Parent = buttonsContainer
 
 				-- Rounded corners for button
 				local buttonCorner = Instance.new("UICorner")
@@ -325,7 +356,8 @@ function UISystem.showObjectUI(object)
 		currentRow = nil
 
 		-- Calculate total height based on the final rowPositionY
-		local totalHeight = rowPositionY - buttonPositionY + buttonHeight
+		local totalHeight = rowPositionY - buttonPositionY
+		buttonsContainer.Size = UDim2.new(1, 0, 0, totalHeight)
 		billboardGui.Size = UDim2.new(0, 150, 0, 132 + totalHeight) -- Adjusted for cooking info
 	end
 
@@ -396,6 +428,7 @@ function UISystem.setupUpdateConnection(object, mainFrame)
 		local part = object.instance
 		local flattenInfo = mainFrame:FindFirstChild("FlattenInfo")
 		local cookingInfo = mainFrame:FindFirstChild("CookingInfo")
+		local buttonsContainer = mainFrame:FindFirstChild("ButtonsContainer")
 
 		if flattenInfo then
 			-- Check for updated flatten count
@@ -448,6 +481,62 @@ function UISystem.setupUpdateConnection(object, mainFrame)
 			-- Update cooking state text and color
 			cookingInfo.Text = "State: " .. cookingState
 			cookingInfo.TextColor3 = textColor
+
+			-- Check if we need to update buttons based on doneness change
+			if buttonsContainer and currentDoneness > 0 then
+				-- If doneness is > 0, we need to remove flatten/unflatten/combine buttons
+				local flattenButton = buttonsContainer:FindFirstChild("FlattenButton", true)
+				local unflattenButton = buttonsContainer:FindFirstChild("UnflattenButton", true)
+				local combineButton = buttonsContainer:FindFirstChild("CombineButton", true)
+
+				-- Remove buttons if they exist
+				if flattenButton then
+					-- Check if it's in a row
+					local buttonRow = flattenButton.Parent
+					if buttonRow and buttonRow.Name == "ButtonRow" then
+						buttonRow:Destroy() -- Remove the entire row
+					else
+						flattenButton:Destroy()
+					end
+				end
+
+				if unflattenButton and unflattenButton.Parent then
+					-- Only destroy if it wasn't already destroyed with the row
+					if unflattenButton.Parent.Name ~= "ButtonRow" or unflattenButton.Parent.Parent then
+						unflattenButton:Destroy()
+					end
+				end
+
+				if combineButton then
+					combineButton:Destroy()
+				end
+
+				-- Check if we need to add "No options" message
+				local hasButtons = false
+				for _, child in ipairs(buttonsContainer:GetChildren()) do
+					if child:IsA("TextButton") or child:IsA("Frame") and #child:GetChildren() > 0 then
+						hasButtons = true
+						break
+					end
+				end
+
+				if not hasButtons and not buttonsContainer:FindFirstChild("NoOptions") then
+					local noOptions = Instance.new("TextLabel")
+					noOptions.Name = "NoOptions"
+					noOptions.Size = UDim2.new(1, 0, 0, 20)
+					noOptions.Position = UDim2.new(0, 0, 0, 0)
+					noOptions.BackgroundTransparency = 1
+					noOptions.Text = "No options available"
+					noOptions.TextColor3 = Color3.fromRGB(200, 200, 200)
+					noOptions.TextSize = 14
+					noOptions.Font = Enum.Font.Gotham
+					noOptions.Parent = buttonsContainer
+
+					-- Resize the container and billboardGui
+					buttonsContainer.Size = UDim2.new(1, 0, 0, 20)
+					currentUI.Size = UDim2.new(0, 150, 0, 160)
+				end
+			end
 		end
 	end)
 

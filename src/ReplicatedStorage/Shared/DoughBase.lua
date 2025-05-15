@@ -96,6 +96,17 @@ function DoughBase:flatten(amount)
 
 	-- Only server should actually flatten the dough
 	if isServer then
+		-- Check doneness value before allowing flatten
+		local doneness = 0
+		if self.instance and self.instance:FindFirstChild("Doneness") then
+			doneness = self.instance.Doneness.Value
+		end
+
+		if doneness > 0 then
+			print("Cannot flatten dough with doneness > 0")
+			return
+		end
+
 		-- Call the parent class's flatten method for consistent behavior
 		BaseClass.flatten(self, amount)
 	end
@@ -119,6 +130,17 @@ function DoughBase:unflatten(amount)
 
 	-- Only server should actually unflatten the dough
 	if isServer then
+		-- Check doneness value before allowing unflatten
+		local doneness = 0
+		if self.instance and self.instance:FindFirstChild("Doneness") then
+			doneness = self.instance.Doneness.Value
+		end
+
+		if doneness > 0 then
+			print("Cannot unflatten dough with doneness > 0")
+			return
+		end
+
 		-- Call the parent class's unflatten method
 		BaseClass.unflatten(self, amount)
 	end
@@ -159,6 +181,18 @@ function DoughBase.createDough(position, sizeValue)
 		}
 		return DoughBase.new(params)
 	end
+end
+
+-- Helper function to check if dough can be manipulated
+function DoughBase:canBeManipulated()
+	local doneness = 0
+	if self.instance and self.instance:FindFirstChild("Doneness") then
+		doneness = self.instance.Doneness.Value
+	elseif self.doneness then
+		doneness = self.doneness
+	end
+
+	return doneness <= 0
 end
 
 return DoughBase
