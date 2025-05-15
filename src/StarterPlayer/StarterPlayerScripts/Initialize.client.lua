@@ -13,6 +13,7 @@ local UISystem = require(ReplicatedStorage.Shared.UISystem)
 local CombineSystem = require(ReplicatedStorage.Shared.CombineSystem)
 local DoughClientModule = require(ReplicatedStorage.Shared.DoughClientModule)
 local DoughRemotes = require(ReplicatedStorage.Shared.DoughRemotes)
+local BakingSystem = require(ReplicatedStorage.Shared.BakingSystem)
 
 print("Roact loaded successfully:", Roact ~= nil)
 
@@ -115,12 +116,42 @@ local function scanWorkspaceForDough()
 	end
 end
 
+-- Set up the UI system to close UI when clicking elsewhere
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then
+		return
+	end
+
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		-- Only close UI if we're not clicking on the UI itself
+		local mousePos = UserInputService:GetMouseLocation()
+		local guiObjects = player.PlayerGui:GetGuiObjectsAtPosition(mousePos.X, mousePos.Y)
+
+		local clickedOnUI = false
+		for _, obj in ipairs(guiObjects) do
+			if obj:IsDescendantOf(UISystem.getCurrentUI()) then
+				clickedOnUI = true
+				break
+			end
+		end
+
+		if not clickedOnUI and UISystem.isUIOpen() then
+			UISystem.closeUI()
+		end
+	end
+end)
+
 -- This function will be called once the game is loaded
 local function init()
 	print("Initializing pizza making game...")
 
 	-- Initialize the drag system
 	DragSystem.init()
+
+	-- Initialize the baking system
+	if not BakingSystem then
+		warn("BakingSystem module not found!")
+	end
 
 	-- Wait for the DoughClientFunctions folder to be created
 	local maxAttempts = 10

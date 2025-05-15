@@ -16,6 +16,8 @@ BaseClass.__index = BaseClass
 -- Constants
 local MINIMUM_SLICE_LENGTH = 0.75 -- 75% of the base needs to be sliced
 local DEFAULT_BASE_SIZE_VALUE = 1 -- Default base "size" property (for splitting)
+local PERFECT_DONENESS = 600 -- Perfect cooking level
+local BURNT_DONENESS = 900 -- Burnt threshold (50% over perfect)
 
 -- Constructor for a new base object
 function BaseClass.new(params)
@@ -31,6 +33,10 @@ function BaseClass.new(params)
 	self.material = params.material or Enum.Material.SmoothPlastic
 	self.sizeValue = params.sizeValue or DEFAULT_BASE_SIZE_VALUE
 	self.flattenCount = params.flattenCount or 0 -- Track number of times flattened
+
+	-- Baking properties
+	self.cookness = params.cookness or 1 -- Rate at which the object cooks
+	self.doneness = params.doneness or 0 -- Current doneness level
 
 	-- Instance for the part
 	self.instance = nil
@@ -80,7 +86,7 @@ function BaseClass:create()
 	part.Size = self.size
 	part.Position = self.position
 	part.Anchored = true
-	part.CanCollide = true
+	part.CanCollide = false -- Disable collision for baking purposes
 	part.Material = self.material
 	part.Color = self.color
 
@@ -111,6 +117,18 @@ function BaseClass:create()
 	flattenCountValue.Name = "FlattenCount"
 	flattenCountValue.Value = self.flattenCount
 	flattenCountValue.Parent = part
+
+	-- Add cookness value
+	local cooknessValue = Instance.new("NumberValue")
+	cooknessValue.Name = "Cookness"
+	cooknessValue.Value = self.cookness
+	cooknessValue.Parent = part
+
+	-- Add doneness value
+	local donenessValue = Instance.new("IntValue")
+	donenessValue.Name = "Doneness"
+	donenessValue.Value = self.doneness
+	donenessValue.Parent = part
 
 	-- Scale the base based on its size value
 	local scaleFactor = sizeValueObj.Value ^ (1 / 3) -- Cube root for 3D scaling
@@ -160,6 +178,46 @@ function BaseClass:flatten(amount)
 	)
 
 	print("Flattened " .. self.name .. " (Flatten count: " .. self.flattenCount .. ")")
+end
+
+-- Update the doneness value
+function BaseClass:updateDoneness(value)
+	self.doneness = value
+
+	if isServer and self.instance then
+		if not self.instance:FindFirstChild("Doneness") then
+			local donenessValue = Instance.new("IntValue")
+			donenessValue.Name = "Doneness"
+			donenessValue.Value = self.doneness
+			donenessValue.Parent = self.instance
+		else
+			self.instance.Doneness.Value = self.doneness
+		end
+	end
+end
+
+-- Get cooking state as string
+function BaseClass:getCookingState()
+	local doneness = self.doneness
+
+	if doneness < 120 then
+		return "Raw"
+	elseif doneness < 300 then
+		return "Slightly Cooked"
+	elseif doneness < 500 then
+		return "Cooked"
+	elseif doneness < PERFECT_DONENESS then
+		return "Well Cooked"
+	elseif doneness <= BURNT_DONENESS then
+		return "Perfectly Cooked"
+	else
+		return "Burnt"
+	end
+end
+
+-- Check if the object is burnt
+function BaseClass:isBurnt()
+	return self.doneness > BURNT_DONENESS
 end
 
 -- Perform the actual slice operation
@@ -247,6 +305,8 @@ function BaseClass:performSlice(sliceStart, sliceEnd)
 		meshType = self.meshType,
 		highlightColor = self.highlightColor,
 		flattenCount = 0, -- Reset flatten count for new sliced pieces
+		cookness = self.cookness, -- Preserve cookness
+		doneness = self.doneness, -- Preserve doneness
 	}
 
 	local params2 = {
@@ -259,6 +319,8 @@ function BaseClass:performSlice(sliceStart, sliceEnd)
 		meshType = self.meshType,
 		highlightColor = self.highlightColor,
 		flattenCount = 0, -- Reset flatten count for new sliced pieces
+		cookness = self.cookness, -- Preserve cookness
+		doneness = self.doneness, -- Preserve doneness
 	}
 
 	-- Get the class of the current object

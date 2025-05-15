@@ -27,6 +27,7 @@ function DoughBase.new(params)
 	params.color = params.color or Color3.fromRGB(235, 213, 179) -- Doughy color
 	params.meshType = params.meshType or Enum.MeshType.Sphere
 	params.material = params.material or Enum.Material.SmoothPlastic
+	params.cookness = params.cookness or 1 -- Default cookness for dough
 
 	-- Create the base object using BaseClass constructor
 	local self = BaseClass.new(params)
@@ -86,6 +87,25 @@ function DoughBase:flatten(amount)
 	if isServer then
 		-- Call the parent class's flatten method for consistent behavior
 		BaseClass.flatten(self, amount)
+	end
+end
+
+-- Override getCookingState to provide custom dough-specific cooking states
+function DoughBase:getCookingState()
+	local doneness = self.doneness
+
+	if doneness < 120 then
+		return "Raw Dough"
+	elseif doneness < 300 then
+		return "Slightly Baked"
+	elseif doneness < 500 then
+		return "Half-Baked"
+	elseif doneness < 600 then
+		return "Well-Baked"
+	elseif doneness <= 900 then
+		return "Perfectly Baked"
+	else
+		return "Burnt"
 	end
 end
 

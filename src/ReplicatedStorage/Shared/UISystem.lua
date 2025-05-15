@@ -51,6 +51,20 @@ function UISystem.showObjectUI(object)
 	local sizeValue = part:FindFirstChild("SizeValue") and part.SizeValue.Value or 1
 	local formattedSize = string.format("%.2f", sizeValue)
 	local flattenCount = object.flattenCount or 0
+	local doneness = object.doneness or 0
+	local cookingState = "Raw"
+
+	-- Get the doneness value from the instance if available
+	if part:FindFirstChild("Doneness") then
+		doneness = part.Doneness.Value
+		-- Update the object's doneness property to ensure consistency
+		object.doneness = doneness
+	end
+
+	-- Get cooking state
+	if object.getCookingState then
+		cookingState = object:getCookingState()
+	end
 
 	-- Also check if the instance has a FlattenCount value
 	if not object.flattenCount and part:FindFirstChild("FlattenCount") then
@@ -64,7 +78,7 @@ function UISystem.showObjectUI(object)
 	billboardGui.Name = "ObjectOptionsUI"
 	billboardGui.Active = true
 	billboardGui.AlwaysOnTop = true
-	billboardGui.Size = UDim2.new(0, 150, 0, 150) -- Make it a bit taller for the size info
+	billboardGui.Size = UDim2.new(0, 150, 0, 170) -- Increase height for cooking info
 	billboardGui.StudsOffset = Vector3.new(partSize.X + 0.2, 2, 0) -- Position above the object
 	billboardGui.Adornee = part
 	billboardGui.Parent = PlayerGui
@@ -140,11 +154,40 @@ function UISystem.showObjectUI(object)
 	flattenInfo.Font = Enum.Font.Gotham
 	flattenInfo.Parent = mainFrame
 
+	-- Cooking state info
+	local cookingInfo = Instance.new("TextLabel")
+	cookingInfo.Name = "CookingInfo"
+	cookingInfo.Size = UDim2.new(1, 0, 0, 20)
+	cookingInfo.Position = UDim2.new(0, 0, 0, 68)
+	cookingInfo.BackgroundTransparency = 1
+
+	-- Set text color based on cooking state
+	local textColor
+	if cookingState == "Raw" then
+		textColor = Color3.fromRGB(200, 200, 200) -- Light gray
+	elseif cookingState == "Slightly Cooked" then
+		textColor = Color3.fromRGB(220, 220, 150) -- Light yellow
+	elseif cookingState == "Cooked" then
+		textColor = Color3.fromRGB(230, 190, 100) -- Light brown
+	elseif cookingState == "Well Cooked" then
+		textColor = Color3.fromRGB(210, 160, 70) -- Darker brown
+	elseif cookingState == "Perfectly Cooked" then
+		textColor = Color3.fromRGB(200, 130, 50) -- Perfect brown
+	else -- Burnt
+		textColor = Color3.fromRGB(80, 50, 30) -- Dark brown/black
+	end
+
+	cookingInfo.Text = "State: " .. cookingState
+	cookingInfo.TextColor3 = textColor
+	cookingInfo.TextSize = 14
+	cookingInfo.Font = Enum.Font.GothamBold
+	cookingInfo.Parent = mainFrame
+
 	-- Options title
 	local optionsTitle = Instance.new("TextLabel")
 	optionsTitle.Name = "OptionsTitle"
 	optionsTitle.Size = UDim2.new(1, 0, 0, 20)
-	optionsTitle.Position = UDim2.new(0, 0, 0, 68)
+	optionsTitle.Position = UDim2.new(0, 0, 0, 88) -- Adjusted position for cooking info
 	optionsTitle.BackgroundTransparency = 1
 	optionsTitle.Text = "OPTIONS"
 	optionsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -153,7 +196,7 @@ function UISystem.showObjectUI(object)
 	optionsTitle.Parent = mainFrame
 
 	-- Add buttons based on options provided by the object
-	local buttonPositionY = 92 -- Increase Y position to account for flatten info
+	local buttonPositionY = 112 -- Adjusted position for cooking info
 	local buttonHeight = 40
 	local buttonSpacing = 45
 
@@ -173,7 +216,7 @@ function UISystem.showObjectUI(object)
 		noOptions.Font = Enum.Font.Gotham
 		noOptions.Parent = mainFrame
 
-		billboardGui.Size = UDim2.new(0, 150, 0, 140) -- Increase size for flatten info
+		billboardGui.Size = UDim2.new(0, 150, 0, 160) -- Adjusted for cooking info
 	else
 		-- Add each button
 		for i, option in ipairs(options) do
@@ -202,6 +245,7 @@ function UISystem.showObjectUI(object)
 					uiClickHandler = nil
 				end
 				billboardGui:Destroy() -- Remove UI
+				currentUI = nil
 
 				-- Call the provided callback function
 				if option.callback then
@@ -211,7 +255,7 @@ function UISystem.showObjectUI(object)
 		end
 
 		-- Resize the frame height based on number of buttons
-		local totalHeight = 112 + (#options * buttonSpacing) -- Increase to account for flatten info
+		local totalHeight = 132 + (#options * buttonSpacing) -- Adjusted for cooking info
 		billboardGui.Size = UDim2.new(0, 150, 0, totalHeight)
 	end
 
@@ -242,18 +286,12 @@ function UISystem.showObjectUI(object)
 			-- If we didn't click on the UI, close it
 			if not clickedOnUI then
 				print("Clicked outside UI, closing options")
-				uiClickHandler:Disconnect()
-				uiClickHandler = nil
-				billboardGui:Destroy()
-				currentUI = nil
+				UISystem.closeUI()
 			end
 		elseif input.KeyCode == Enum.KeyCode.E then
 			-- Also allow closing with E key
 			print("E pressed, closing options")
-			uiClickHandler:Disconnect()
-			uiClickHandler = nil
-			billboardGui:Destroy()
-			currentUI = nil
+			UISystem.closeUI()
 		end
 	end)
 
