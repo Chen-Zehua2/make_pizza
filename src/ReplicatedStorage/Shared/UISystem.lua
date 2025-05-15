@@ -24,6 +24,8 @@ local UISystem = {}
 -- Variables
 local currentUI = nil
 local uiClickHandler = nil
+local uiUpdateConnection = nil -- Connection for UI updates
+local currentUIObject = nil -- Reference to the current object whose UI is shown
 
 -- Function to show UI when an object is clicked
 function UISystem.showObjectUI(object)
@@ -34,18 +36,14 @@ function UISystem.showObjectUI(object)
 
 	-- Clean up previous UI if it exists
 	if currentUI then
-		if uiClickHandler then
-			uiClickHandler:Disconnect()
-			uiClickHandler = nil
-		end
-		currentUI:Destroy()
-		currentUI = nil
+		UISystem.closeUI()
 	end
 
 	if not object or not object.instance then
 		return
 	end
 
+	currentUIObject = object -- Store reference to the current object
 	local part = object.instance
 	local partSize = part.Size
 	local sizeValue = part:FindFirstChild("SizeValue") and part.SizeValue.Value or 1
@@ -199,6 +197,8 @@ function UISystem.showObjectUI(object)
 	local buttonPositionY = 112 -- Adjusted position for cooking info
 	local buttonHeight = 40
 	local buttonSpacing = 45
+	local currentRow = nil
+	local rowPositionY = buttonPositionY
 
 	-- Get options from the object or use an empty table
 	local options = object.options or {}
@@ -218,45 +218,115 @@ function UISystem.showObjectUI(object)
 
 		billboardGui.Size = UDim2.new(0, 150, 0, 160) -- Adjusted for cooking info
 	else
-		-- Add each button
+		-- Add each button, checking for row layout
 		for i, option in ipairs(options) do
-			local button = Instance.new("TextButton")
-			button.Name = option.text .. "Button"
-			button.Size = UDim2.new(1, 0, 0, buttonHeight)
-			button.Position = UDim2.new(0, 0, 0, buttonPositionY + (i - 1) * buttonSpacing)
-			button.BackgroundColor3 = option.color -- Use the fixed color defined in the option
-			button.Text = option.text
-			button.TextColor3 = Color3.fromRGB(0, 0, 0)
-			button.TextSize = 16
-			button.Font = Enum.Font.GothamSemibold
-			button.Parent = mainFrame
-
-			-- Rounded corners for button
-			local buttonCorner = Instance.new("UICorner")
-			buttonCorner.CornerRadius = UDim.new(0, 8)
-			buttonCorner.Parent = button
-
-			-- Button click action
-			button.MouseButton1Click:Connect(function()
-				print(option.text .. " button clicked!")
-				-- Disconnect the UI click handler before destroying
-				if uiClickHandler then
-					uiClickHandler:Disconnect()
-					uiClickHandler = nil
+			-- Check if we need to create a new row or use the current one
+			if option.layout == "row" then
+				-- If this is the first button in a row, create a new container
+				if not currentRow then
+					currentRow = Instance.new("Frame")
+					currentRow.Name = "ButtonRow"
+					currentRow.Size = UDim2.new(1, 0, 0, buttonHeight)
+					currentRow.Position = UDim2.new(0, 0, 0, rowPositionY)
+					currentRow.BackgroundTransparency = 1
+					currentRow.Parent = mainFrame
 				end
-				billboardGui:Destroy() -- Remove UI
-				currentUI = nil
 
-				-- Call the provided callback function
-				if option.callback then
-					option.callback()
+				-- Create the button in the row
+				local button = Instance.new("TextButton")
+				button.Name = option.text .. "Button"
+				button.Size = UDim2.new(option.width or 0.48, 0, 1, 0)
+
+				-- Position based on whether it's the first or second button in row
+				if option.width == 0.48 or not option.width then
+					if i > 1 and options[i - 1].layout == "row" then
+						button.Position = UDim2.new(0.52, 0, 0, 0) -- Second button position
+					else
+						button.Position = UDim2.new(0, 0, 0, 0) -- First button position
+					end
 				end
-			end)
+
+				button.BackgroundColor3 = option.color -- Use the fixed color defined in the option
+				button.Text = option.text
+				button.TextColor3 = Color3.fromRGB(0, 0, 0)
+				button.TextSize = 16
+				button.Font = Enum.Font.GothamSemibold
+				button.Parent = currentRow
+
+				-- Rounded corners for button
+				local buttonCorner = Instance.new("UICorner")
+				buttonCorner.CornerRadius = UDim.new(0, 8)
+				buttonCorner.Parent = button
+
+				-- Button click action
+				button.MouseButton1Click:Connect(function()
+					print(option.text .. " button clicked!")
+					-- Disconnect the UI click handler before destroying
+					if uiClickHandler then
+						uiClickHandler:Disconnect()
+						uiClickHandler = nil
+					end
+					billboardGui:Destroy() -- Remove UI
+					currentUI = nil
+
+					-- Call the provided callback function
+					if option.callback then
+						option.callback()
+					end
+				end)
+
+				-- Reset currentRow if this is the last button in the row
+				if i < #options and options[i + 1].layout ~= "row" then
+					currentRow = nil
+					rowPositionY = rowPositionY + buttonSpacing
+				end
+			else
+				-- Regular button (full width)
+				currentRow = nil
+
+				local button = Instance.new("TextButton")
+				button.Name = option.text .. "Button"
+				button.Size = UDim2.new(1, 0, 0, buttonHeight)
+				button.Position = UDim2.new(0, 0, 0, rowPositionY)
+				button.BackgroundColor3 = option.color -- Use the fixed color defined in the option
+				button.Text = option.text
+				button.TextColor3 = Color3.fromRGB(0, 0, 0)
+				button.TextSize = 16
+				button.Font = Enum.Font.GothamSemibold
+				button.Parent = mainFrame
+
+				-- Rounded corners for button
+				local buttonCorner = Instance.new("UICorner")
+				buttonCorner.CornerRadius = UDim.new(0, 8)
+				buttonCorner.Parent = button
+
+				-- Button click action
+				button.MouseButton1Click:Connect(function()
+					print(option.text .. " button clicked!")
+					-- Disconnect the UI click handler before destroying
+					if uiClickHandler then
+						uiClickHandler:Disconnect()
+						uiClickHandler = nil
+					end
+					billboardGui:Destroy() -- Remove UI
+					currentUI = nil
+
+					-- Call the provided callback function
+					if option.callback then
+						option.callback()
+					end
+				end)
+
+				rowPositionY = rowPositionY + buttonSpacing
+			end
 		end
 
-		-- Resize the frame height based on number of buttons
-		local totalHeight = 132 + (#options * buttonSpacing) -- Adjusted for cooking info
-		billboardGui.Size = UDim2.new(0, 150, 0, totalHeight)
+		-- Reset currentRow at the end
+		currentRow = nil
+
+		-- Calculate total height based on the final rowPositionY
+		local totalHeight = rowPositionY - buttonPositionY + buttonHeight
+		billboardGui.Size = UDim2.new(0, 150, 0, 132 + totalHeight) -- Adjusted for cooking info
 	end
 
 	mainFrame.Parent = billboardGui
@@ -302,6 +372,99 @@ function UISystem.showObjectUI(object)
 			uiClickHandler = nil
 		end
 	end)
+
+	-- Setup update connection for dynamic UI updates
+	UISystem.setupUpdateConnection(object, mainFrame)
+end
+
+-- Function to setup dynamic UI update connection
+function UISystem.setupUpdateConnection(object, mainFrame)
+	-- Clean up existing connection if it exists
+	if uiUpdateConnection then
+		uiUpdateConnection:Disconnect()
+		uiUpdateConnection = nil
+	end
+
+	-- Connect to RunService.Heartbeat for regular updates
+	uiUpdateConnection = RunService.Heartbeat:Connect(function()
+		-- Make sure UI and object still exist
+		if not currentUI or not currentUI.Parent or not object or not object.instance or not object.instance.Parent then
+			UISystem.closeUI()
+			return
+		end
+
+		local part = object.instance
+		local flattenInfo = mainFrame:FindFirstChild("FlattenInfo")
+		local cookingInfo = mainFrame:FindFirstChild("CookingInfo")
+
+		if flattenInfo then
+			-- Check for updated flatten count
+			local currentFlattenCount = object.flattenCount or 0
+
+			-- Get the flatten count from the instance if available
+			if part:FindFirstChild("FlattenCount") then
+				currentFlattenCount = part.FlattenCount.Value
+				-- Update the object's property for consistency
+				object.flattenCount = currentFlattenCount
+			end
+
+			-- Update flatten count text
+			flattenInfo.Text = "Flattened: " .. currentFlattenCount .. " times"
+		end
+
+		if cookingInfo then
+			-- Check for updated doneness
+			local currentDoneness = object.doneness or 0
+
+			-- Get the doneness value from the instance if available
+			if part:FindFirstChild("Doneness") then
+				currentDoneness = part.Doneness.Value
+				-- Update the object's property for consistency
+				object.doneness = currentDoneness
+			end
+
+			-- Get cooking state
+			local cookingState = "Raw"
+			if object.getCookingState then
+				cookingState = object:getCookingState()
+			end
+
+			-- Set text color based on cooking state
+			local textColor
+			if cookingState == "Raw" then
+				textColor = Color3.fromRGB(200, 200, 200) -- Light gray
+			elseif cookingState == "Slightly Cooked" then
+				textColor = Color3.fromRGB(220, 220, 150) -- Light yellow
+			elseif cookingState == "Cooked" then
+				textColor = Color3.fromRGB(230, 190, 100) -- Light brown
+			elseif cookingState == "Well Cooked" then
+				textColor = Color3.fromRGB(210, 160, 70) -- Darker brown
+			elseif cookingState == "Perfectly Cooked" then
+				textColor = Color3.fromRGB(200, 130, 50) -- Perfect brown
+			else -- Burnt
+				textColor = Color3.fromRGB(80, 50, 30) -- Dark brown/black
+			end
+
+			-- Update cooking state text and color
+			cookingInfo.Text = "State: " .. cookingState
+			cookingInfo.TextColor3 = textColor
+		end
+	end)
+
+	-- Also connect to DonenessUpdate remote event if it exists
+	if isClient then
+		local DonenessUpdateEvent = ReplicatedStorage:FindFirstChild("DonenessUpdate")
+		if DonenessUpdateEvent then
+			-- Connect to doneness updates directly
+			DonenessUpdateEvent.OnClientEvent:Connect(function(updatedPart, newDoneness)
+				-- Check if this update is for our current object
+				if currentUIObject and currentUIObject.instance == updatedPart then
+					-- Update object's doneness value
+					currentUIObject.doneness = newDoneness
+				end
+			end)
+		end
+	end
 end
 
 -- Close any open UI
@@ -311,8 +474,15 @@ function UISystem.closeUI()
 			uiClickHandler:Disconnect()
 			uiClickHandler = nil
 		end
+
+		if uiUpdateConnection then
+			uiUpdateConnection:Disconnect()
+			uiUpdateConnection = nil
+		end
+
 		currentUI:Destroy()
 		currentUI = nil
+		currentUIObject = nil
 	end
 end
 

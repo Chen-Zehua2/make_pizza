@@ -1,45 +1,40 @@
 -- DoughRemotes.lua
--- Centralizes all RemoteEvents for the dough system
+-- Centralized module for all dough-related RemoteEvents
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
--- Create a folder to organize our RemoteEvents
-local remoteFolder = ReplicatedStorage:FindFirstChild("DoughRemotes")
-if not remoteFolder then
-	remoteFolder = Instance.new("Folder")
-	remoteFolder.Name = "DoughRemotes"
-	remoteFolder.Parent = ReplicatedStorage
-end
+-- Check if we're running on client or server
+local isServer = RunService:IsServer()
 
--- Create RemoteEvents if they don't exist
-local function createRemoteIfNeeded(name)
-	local remote = remoteFolder:FindFirstChild(name)
-	if not remote then
-		remote = Instance.new("RemoteEvent")
-		remote.Name = name
-		remote.Parent = remoteFolder
+-- Create the module
+local DoughRemotes = {}
+
+-- Helper function to create or get a RemoteEvent
+local function getRemoteEvent(name)
+	local event = ReplicatedStorage:FindFirstChild(name)
+	if event then
+		return event
 	end
-	return remote
+
+	if isServer then
+		event = Instance.new("RemoteEvent")
+		event.Name = name
+		event.Parent = ReplicatedStorage
+	else
+		event = ReplicatedStorage:WaitForChild(name)
+	end
+
+	return event
 end
 
-local DoughRemotes = {
-	-- Create initial dough
-	CreateDough = createRemoteIfNeeded("CreateDough"),
-
-	-- Slice a dough into two pieces
-	SliceDough = createRemoteIfNeeded("SliceDough"),
-
-	-- Combine multiple doughs into one
-	CombineDoughs = createRemoteIfNeeded("CombineDoughs"),
-
-	-- Flatten a dough
-	FlattenDough = createRemoteIfNeeded("FlattenDough"),
-
-	-- Update a dough's position (for dragging)
-	UpdateDoughPosition = createRemoteIfNeeded("UpdateDoughPosition"),
-
-	-- Destroy a dough
-	DestroyDough = createRemoteIfNeeded("DestroyDough"),
-}
+-- Create/get all the RemoteEvents
+DoughRemotes.CreateDough = getRemoteEvent("CreateDough")
+DoughRemotes.SliceDough = getRemoteEvent("SliceDough")
+DoughRemotes.CombineDoughs = getRemoteEvent("CombineDoughs")
+DoughRemotes.FlattenDough = getRemoteEvent("FlattenDough")
+DoughRemotes.UnflattenDough = getRemoteEvent("UnflattenDough")
+DoughRemotes.UpdateDoughPosition = getRemoteEvent("UpdateDoughPosition")
+DoughRemotes.DestroyDough = getRemoteEvent("DestroyDough")
 
 return DoughRemotes

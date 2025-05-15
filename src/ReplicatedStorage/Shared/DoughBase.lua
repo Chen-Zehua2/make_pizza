@@ -53,6 +53,17 @@ function DoughBase.new(params)
 			callback = function()
 				self:flatten()
 			end,
+			layout = "row", -- Indicate these buttons should be in the same row
+			width = 0.48, -- Take up half of the row width
+		},
+		{
+			text = "Unflatten",
+			color = Color3.fromRGB(156, 200, 255), -- Light blue color for unflatten
+			callback = function()
+				self:unflatten()
+			end,
+			layout = "row", -- Indicate these buttons should be in the same row
+			width = 0.48, -- Take up half of the row width
 		},
 		{
 			text = "Combine",
@@ -87,6 +98,29 @@ function DoughBase:flatten(amount)
 	if isServer then
 		-- Call the parent class's flatten method for consistent behavior
 		BaseClass.flatten(self, amount)
+	end
+end
+
+-- Add unflatten method that uses remote event
+function DoughBase:unflatten(amount)
+	-- If we're on the client, use the remote event
+	if isClient then
+		-- Get the DoughId from the instance attributes
+		local doughId = self.instance and self.instance:GetAttribute("DoughId")
+		if doughId then
+			-- Require DoughRemotes only when needed
+			local DoughRemotes = require(ReplicatedStorage.Shared.DoughRemotes)
+			DoughRemotes.UnflattenDough:FireServer(doughId, amount)
+
+			-- Don't call BaseClass.unflatten on client - let the server handle it
+			return
+		end
+	end
+
+	-- Only server should actually unflatten the dough
+	if isServer then
+		-- Call the parent class's unflatten method
+		BaseClass.unflatten(self, amount)
 	end
 end
 

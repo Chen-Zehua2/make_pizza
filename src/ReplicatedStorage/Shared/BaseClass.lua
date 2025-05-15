@@ -66,6 +66,17 @@ function BaseClass.new(params)
 			callback = function()
 				self:flatten()
 			end,
+			layout = "row", -- Indicate these buttons should be in the same row
+			width = 0.48, -- Take up half of the row width
+		},
+		{
+			text = "Unflatten",
+			color = Color3.fromRGB(156, 200, 255), -- Light blue color for unflatten
+			callback = function()
+				self:unflatten()
+			end,
+			layout = "row", -- Indicate these buttons should be in the same row
+			width = 0.48, -- Take up half of the row width
 		},
 	}
 
@@ -178,6 +189,40 @@ function BaseClass:flatten(amount)
 	)
 
 	print("Flattened " .. self.name .. " (Flatten count: " .. self.flattenCount .. ")")
+end
+
+-- Unflatten the base (reduce flatten count by 1)
+function BaseClass:unflatten(amount)
+	if not self.instance then
+		return
+	end
+
+	-- Don't unflatten if flatten count is already 0
+	if self.flattenCount <= 0 then
+		return
+	end
+
+	amount = amount or 0.5 -- Default unflatten amount (same as flatten)
+
+	-- Update flatten count
+	self.flattenCount = self.flattenCount - 1
+
+	-- If on server, update the IntValue
+	if isServer then
+		if self.instance:FindFirstChild("FlattenCount") then
+			self.instance.FlattenCount.Value = self.flattenCount
+		end
+	end
+
+	-- Invert the flattening effect
+	local currentSize = self.instance.Size
+	self.instance.Size = Vector3.new(
+		currentSize.X / (1 + amount * 0.5),
+		currentSize.Y / (1 - amount),
+		currentSize.Z / (1 + amount * 0.5)
+	)
+
+	print("Unflattened " .. self.name .. " (Flatten count: " .. self.flattenCount .. ")")
 end
 
 -- Update the doneness value
@@ -304,7 +349,7 @@ function BaseClass:performSlice(sliceStart, sliceEnd)
 		material = self.material,
 		meshType = self.meshType,
 		highlightColor = self.highlightColor,
-		flattenCount = 0, -- Reset flatten count for new sliced pieces
+		flattenCount = self.flattenCount, -- Preserve flatten count from original object
 		cookness = self.cookness, -- Preserve cookness
 		doneness = self.doneness, -- Preserve doneness
 	}
@@ -318,7 +363,7 @@ function BaseClass:performSlice(sliceStart, sliceEnd)
 		material = self.material,
 		meshType = self.meshType,
 		highlightColor = self.highlightColor,
-		flattenCount = 0, -- Reset flatten count for new sliced pieces
+		flattenCount = self.flattenCount, -- Preserve flatten count from original object
 		cookness = self.cookness, -- Preserve cookness
 		doneness = self.doneness, -- Preserve doneness
 	}

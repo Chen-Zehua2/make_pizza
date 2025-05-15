@@ -144,7 +144,21 @@ DoughRemotes.SliceDough.OnServerEvent:Connect(function(player, doughId, sliceDat
 		).MeshType or Enum.MeshType.Sphere,
 		size = dough.size,
 		highlightColor = dough.highlightColor or Color3.fromRGB(255, 255, 150),
+		flattenCount = dough.flattenCount or 0,
+		doneness = dough.doneness or 0,
+		cookness = dough.cookness or 1,
 	}
+
+	-- Get values from instance if they exist
+	if dough.instance:FindFirstChild("FlattenCount") then
+		originalDoughProps.flattenCount = dough.instance.FlattenCount.Value
+	end
+	if dough.instance:FindFirstChild("Doneness") then
+		originalDoughProps.doneness = dough.instance.Doneness.Value
+	end
+	if dough.instance:FindFirstChild("Cookness") then
+		originalDoughProps.cookness = dough.instance.Cookness.Value
+	end
 
 	-- Create the two new pieces using data from client
 	local params1 = {
@@ -156,7 +170,9 @@ DoughRemotes.SliceDough.OnServerEvent:Connect(function(player, doughId, sliceDat
 		material = originalDoughProps.material,
 		meshType = originalDoughProps.meshType,
 		highlightColor = originalDoughProps.highlightColor,
-		flattenCount = 0, -- Reset flatten count for new sliced pieces
+		flattenCount = originalDoughProps.flattenCount, -- Preserve flatten count
+		doneness = originalDoughProps.doneness, -- Preserve doneness
+		cookness = originalDoughProps.cookness, -- Preserve cookness
 	}
 
 	local params2 = {
@@ -168,7 +184,9 @@ DoughRemotes.SliceDough.OnServerEvent:Connect(function(player, doughId, sliceDat
 		material = originalDoughProps.material,
 		meshType = originalDoughProps.meshType,
 		highlightColor = originalDoughProps.highlightColor,
-		flattenCount = 0, -- Reset flatten count for new sliced pieces
+		flattenCount = originalDoughProps.flattenCount, -- Preserve flatten count
+		doneness = originalDoughProps.doneness, -- Preserve doneness
+		cookness = originalDoughProps.cookness, -- Preserve cookness
 	}
 
 	-- Create the new dough objects
@@ -262,14 +280,56 @@ DoughRemotes.CombineDoughs.OnServerEvent:Connect(function(player, targetDoughId,
 		Vector3.new(originalSize.X * newScaleFactor, originalSize.Y * newScaleFactor, originalSize.Z * newScaleFactor)
 	targetDough.instance.Size = newSize
 
-	-- Reset flatten count
-	targetDough.flattenCount = 0
+	-- Calculate the highest doneness value from all doughs being combined
+	local highestDoneness = targetDough.doneness or 0
+	if targetDough.instance:FindFirstChild("Doneness") then
+		highestDoneness = targetDough.instance.Doneness.Value
+	end
+
+	-- Preserve the highest flatten count
+	local highestFlattenCount = targetDough.flattenCount or 0
 	if targetDough.instance:FindFirstChild("FlattenCount") then
-		targetDough.instance.FlattenCount.Value = 0
+		highestFlattenCount = targetDough.instance.FlattenCount.Value
+	end
+
+	-- Find the highest doneness and flatten count among all doughs being combined
+	for _, doughId in ipairs(doughsToRemoveIds) do
+		local dough = getServerDough(doughId)
+		if dough and dough.instance then
+			-- Check doneness
+			local doughDoneness = 0
+			if dough.instance:FindFirstChild("Doneness") then
+				doughDoneness = dough.instance.Doneness.Value
+			end
+			if doughDoneness > highestDoneness then
+				highestDoneness = doughDoneness
+			end
+
+			-- Check flatten count
+			local doughFlattenCount = 0
+			if dough.instance:FindFirstChild("FlattenCount") then
+				doughFlattenCount = dough.instance.FlattenCount.Value
+			end
+			if doughFlattenCount > highestFlattenCount then
+				highestFlattenCount = doughFlattenCount
+			end
+		end
+	end
+
+	-- Update target dough's properties with the highest values
+	targetDough.doneness = highestDoneness
+	if targetDough.instance:FindFirstChild("Doneness") then
+		targetDough.instance.Doneness.Value = highestDoneness
+	end
+
+	-- Update flatten count
+	targetDough.flattenCount = highestFlattenCount
+	if targetDough.instance:FindFirstChild("FlattenCount") then
+		targetDough.instance.FlattenCount.Value = highestFlattenCount
 	else
 		local flattenCountValue = Instance.new("IntValue")
 		flattenCountValue.Name = "FlattenCount"
-		flattenCountValue.Value = 0
+		flattenCountValue.Value = highestFlattenCount
 		flattenCountValue.Parent = targetDough.instance
 	end
 
@@ -314,6 +374,30 @@ DoughRemotes.FlattenDough.OnServerEvent:Connect(function(player, doughId, amount
 	DoughRemotes.FlattenDough:FireAllClients(doughId, amount)
 
 	print("Server: Flattened dough", doughId)
+end)
+
+-- Handle dough unflattening
+DoughRemotes.UnflattenDough.OnServerEvent:Connect(function(player, doughId, amount)
+	-- Verify ownership
+	if not playerOwnsDough(player, doughId) then
+		warn("Server: Player", player.Name, "attempted to unflatten dough", doughId, "which they don't own")
+		return
+	end
+
+	-- Get the server-side dough
+	local dough = getServerDough(doughId)
+	if not dough then
+		warn("Server: Dough not found for unflattening", doughId)
+		return
+	end
+
+	-- Perform the unflatten operation
+	dough:unflatten(amount)
+
+	-- Notify all clients
+	DoughRemotes.UnflattenDough:FireAllClients(doughId, amount)
+
+	print("Server: Unflattened dough", doughId)
 end)
 
 -- Handle dough position updates
