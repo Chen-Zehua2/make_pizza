@@ -187,7 +187,7 @@ DoughRemotes.CreateDough.OnServerEvent:Connect(function(player, position, sizeVa
 end)
 
 -- Handle dough slicing
-DoughRemotes.SliceDough.OnServerEvent:Connect(function(player, doughId, sliceData)
+DoughRemotes.SplitDough.OnServerEvent:Connect(function(player, doughId, sliceData)
 	-- Verify ownership
 	if not playerOwnsDough(player, doughId) then
 		warn("Server: Player", player.Name, "attempted to slice dough", doughId, "which they don't own")
@@ -198,6 +198,19 @@ DoughRemotes.SliceDough.OnServerEvent:Connect(function(player, doughId, sliceDat
 	local dough = getServerDough(doughId)
 	if not dough then
 		warn("Server: Dough not found for slicing", doughId)
+		return
+	end
+
+	-- Check doneness value before allowing the split
+	local doneness = 0
+	if dough.instance and dough.instance:FindFirstChild("Doneness") then
+		doneness = dough.instance.Doneness.Value
+	elseif dough.doneness then
+		doneness = dough.doneness
+	end
+
+	if doneness > 0 then
+		warn("Server: Cannot split dough with doneness > 0")
 		return
 	end
 
@@ -303,7 +316,7 @@ DoughRemotes.SliceDough.OnServerEvent:Connect(function(player, doughId, sliceDat
 	adjustDoughAppearance(newDough2)
 
 	-- Notify the client about the sliced doughs
-	DoughRemotes.SliceDough:FireClient(player, doughId, doughId1, doughId2)
+	DoughRemotes.SplitDough:FireClient(player, doughId, doughId1, doughId2)
 
 	print("Server: Sliced dough", doughId, "into", doughId1, "and", doughId2, "with client-computed values")
 end)
@@ -420,57 +433,36 @@ DoughRemotes.CombineDoughs.OnServerEvent:Connect(function(player, targetDoughId,
 end)
 
 -- Handle dough flattening
-DoughRemotes.FlattenDough.OnServerEvent:Connect(function(player, doughId, amount)
+DoughRemotes.SetFlattenValue.OnServerEvent:Connect(function(player, doughId, value)
 	-- Verify ownership
 	if not playerOwnsDough(player, doughId) then
-		warn("Server: Player", player.Name, "attempted to flatten dough", doughId, "which they don't own")
+		warn(
+			"Server: Player",
+			player.Name,
+			"attempted to adjust flatten value of dough",
+			doughId,
+			"which they don't own"
+		)
 		return
 	end
 
 	-- Get the server-side dough
 	local dough = getServerDough(doughId)
 	if not dough then
-		warn("Server: Dough not found for flattening", doughId)
+		warn("Server: Dough not found for flatten adjustment", doughId)
 		return
 	end
 
-	-- Perform the flatten operation
-	dough:flatten(amount)
+	-- Validate the value is within bounds
+	value = math.clamp(value, 0, 3)
 
-	-- Adjust appearance based on updated flatten count
-	adjustDoughAppearance(dough)
+	-- Set the flatten value
+	dough:setFlattenValue(value)
 
 	-- Notify all clients
-	DoughRemotes.FlattenDough:FireAllClients(doughId, amount)
+	DoughRemotes.SetFlattenValue:FireAllClients(doughId, value)
 
-	print("Server: Flattened dough", doughId)
-end)
-
--- Handle dough unflattening
-DoughRemotes.UnflattenDough.OnServerEvent:Connect(function(player, doughId, amount)
-	-- Verify ownership
-	if not playerOwnsDough(player, doughId) then
-		warn("Server: Player", player.Name, "attempted to unflatten dough", doughId, "which they don't own")
-		return
-	end
-
-	-- Get the server-side dough
-	local dough = getServerDough(doughId)
-	if not dough then
-		warn("Server: Dough not found for unflattening", doughId)
-		return
-	end
-
-	-- Perform the unflatten operation
-	dough:unflatten(amount)
-
-	-- Adjust appearance based on updated flatten count
-	adjustDoughAppearance(dough)
-
-	-- Notify all clients
-	DoughRemotes.UnflattenDough:FireAllClients(doughId, amount)
-
-	print("Server: Unflattened dough", doughId)
+	print("Server: Set flatten value of dough", doughId, "to", value)
 end)
 
 -- Handle dough position updates

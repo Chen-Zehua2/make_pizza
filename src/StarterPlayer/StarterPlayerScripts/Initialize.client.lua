@@ -7,7 +7,7 @@ local RunService = game:GetService("RunService")
 -- Import the modules
 local Roact = require(ReplicatedStorage.Shared.Roact)
 local DoughBase = require(ReplicatedStorage.Shared.DoughBase)
-local SliceSystem = require(ReplicatedStorage.Shared.SliceSystem)
+local SplitSystem = require(ReplicatedStorage.Shared.SplitSystem)
 local DragSystem = require(ReplicatedStorage.Shared.DragSystem)
 local UISystem = require(ReplicatedStorage.Shared.UISystem)
 local CombineSystem = require(ReplicatedStorage.Shared.CombineSystem)

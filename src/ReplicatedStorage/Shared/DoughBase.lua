@@ -37,33 +37,25 @@ function DoughBase.new(params)
 
 	-- Override the options with dough-specific options
 	-- Add combine option specifically for dough
-	local SliceSystem = require(ReplicatedStorage.Shared.SliceSystem)
+	local SplitSystem = require(ReplicatedStorage.Shared.SplitSystem)
 	local CombineSystem = require(ReplicatedStorage.Shared.CombineSystem)
 	self.options = {
 		{
-			text = "Slice",
-			color = Color3.fromRGB(255, 156, 156), -- Red color for slice
+			text = "Split",
+			color = Color3.fromRGB(255, 156, 156), -- Red color for Split
 			callback = function()
-				SliceSystem.startSlicing(self, getmetatable(self))
+				SplitSystem.startSplitting(self, getmetatable(self))
 			end,
 		},
 		{
-			text = "Flatten",
+			text = "Flatten Scale",
 			color = Color3.fromRGB(156, 156, 255), -- Blue color for flatten
-			callback = function()
-				self:flatten()
+			type = "scale", -- New type to indicate this is a scale control
+			min = 0,
+			max = 3,
+			callback = function(value)
+				self:setFlattenValue(value)
 			end,
-			layout = "row", -- Indicate these buttons should be in the same row
-			width = 0.48, -- Take up half of the row width
-		},
-		{
-			text = "Unflatten",
-			color = Color3.fromRGB(156, 200, 255), -- Light blue color for unflatten
-			callback = function()
-				self:unflatten()
-			end,
-			layout = "row", -- Indicate these buttons should be in the same row
-			width = 0.48, -- Take up half of the row width
 		},
 		{
 			text = "Combine",
@@ -146,14 +138,78 @@ function DoughBase:unflatten(amount)
 	end
 end
 
+-- New method to set flatten value directly using a scale
+function DoughBase:setFlattenValue(value)
+	-- If we're on the client, use the remote event
+	if isClient then
+		-- Get the DoughId from the instance attributes
+		local doughId = self.instance and self.instance:GetAttribute("DoughId")
+		if doughId then
+			-- Require DoughRemotes only when needed
+			local DoughRemotes = require(ReplicatedStorage.Shared.DoughRemotes)
+			DoughRemotes.SetFlattenValue:FireServer(doughId, value)
+			return
+		end
+	end
+
+	-- Only server should actually set the flatten value
+	if isServer then
+		-- Check doneness value before allowing flatten adjustment
+		local doneness = 0
+		if self.instance and self.instance:FindFirstChild("Doneness") then
+			doneness = self.instance.Doneness.Value
+		end
+
+		if doneness > 0 then
+			print("Cannot adjust flatten value with doneness > 0")
+			return
+		end
+
+		-- Validate the value is within bounds
+		value = math.clamp(value, 0, 3)
+
+		-- Update the flatten count
+		self.flattenCount = value
+		if self.instance:FindFirstChild("FlattenCount") then
+			self.instance.FlattenCount.Value = value
+		else
+			local flattenCountValue = Instance.new("NumberValue")
+			flattenCountValue.Name = "FlattenCount"
+			flattenCountValue.Value = value
+			flattenCountValue.Parent = self.instance
+		end
+
+		-- Get original size before flattening
+		local originalSize = self.size
+		local sizeValue = self.sizeValue or 1
+
+		-- Calculate scale factor based on size value (for volume)
+		local scaleFactor = sizeValue ^ (1 / 3) -- Cube root for 3D scaling
+
+		-- Calculate flattening effect (0 = no flattening, 3 = maximum flattening)
+		local flattenFactor = math.max(0.1, 1 - (value * 0.3)) -- At value 3, height is 10% of original
+		local spreadFactor = math.sqrt(1 / flattenFactor) -- Preserve volume
+
+		-- Calculate final size
+		local newSize = Vector3.new(
+			originalSize.X * scaleFactor * spreadFactor,
+			originalSize.Y * scaleFactor * flattenFactor,
+			originalSize.Z * scaleFactor * spreadFactor
+		)
+
+		-- Update instance size
+		self.instance.Size = newSize
+	end
+end
+
 -- Override getCookingState to provide custom dough-specific cooking states
 function DoughBase:getCookingState()
 	local doneness = self.doneness
 
-	if doneness < 120 then
+	if doneness <= 0 then
 		return "Raw Dough"
 	elseif doneness < 300 then
-		return "Slightly Baked"
+		return "Slightly Cooked"
 	elseif doneness < 500 then
 		return "Half-Baked"
 	elseif doneness < 600 then

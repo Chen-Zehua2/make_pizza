@@ -19,7 +19,7 @@ if not isClient then
 		getDoughFromInstance = function()
 			warn("DoughClientModule can only be used on the client")
 		end,
-		sliceDough = function()
+		splitDough = function()
 			warn("DoughClientModule can only be used on the client")
 		end,
 		combineDoughs = function()
@@ -78,8 +78,8 @@ local DoughClientModule = {
 		return invokeClientFunction("GetDoughFromInstance", instance)
 	end,
 
-	sliceDough = function(doughId, sliceStart, sliceEnd)
-		return invokeClientFunction("SliceDough", doughId, sliceStart, sliceEnd)
+	splitDough = function(doughId, sliceStart, sliceEnd)
+		return invokeClientFunction("SplitDough", doughId, sliceStart, sliceEnd)
 	end,
 
 	combineDoughs = function(targetDoughId, doughsToRemoveIds, totalSizeValue)

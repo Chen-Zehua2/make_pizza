@@ -1,5 +1,5 @@
 -- BaseClass.lua
--- Base class for pizza base objects (like dough) that can slice and combine
+-- Base class for pizza base objects (like dough) that can sp and combine
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -14,7 +14,7 @@ local BaseClass = {}
 BaseClass.__index = BaseClass
 
 -- Constants
-local MINIMUM_SLICE_LENGTH = 0.75 -- 75% of the base needs to be sliced
+local MINIMUM_SPLIT_LENGTH = 0.75 -- 75% of the base needs to be splitted
 local DEFAULT_BASE_SIZE_VALUE = 1 -- Default base "size" property (for splitting)
 local PERFECT_DONENESS = 600 -- Perfect cooking level
 local BURNT_DONENESS = 900 -- Burnt threshold (50% over perfect)
@@ -51,13 +51,13 @@ function BaseClass.new(params)
 
 	-- Define available options for base objects with fixed colors
 	-- This will be loaded by the UI system
-	local SliceSystem = require(ReplicatedStorage.Shared.SliceSystem)
+	local SplitSystem = require(ReplicatedStorage.Shared.SplitSystem)
 	self.options = {
 		{
-			text = "Slice",
-			color = Color3.fromRGB(255, 156, 156), -- Red color for slice
+			text = "Split",
+			color = Color3.fromRGB(255, 156, 156), -- Red color for Split
 			callback = function()
-				SliceSystem.startSlicing(self, getmetatable(self))
+				SplitSystem.startSplitting(self, getmetatable(self))
 			end,
 		},
 		{
@@ -124,7 +124,7 @@ function BaseClass:create()
 	sizeValueObj.Parent = part
 
 	-- Add flatten count value
-	local flattenCountValue = Instance.new("IntValue")
+	local flattenCountValue = Instance.new("NumberValue")
 	flattenCountValue.Name = "FlattenCount"
 	flattenCountValue.Value = self.flattenCount
 	flattenCountValue.Parent = part
@@ -172,7 +172,7 @@ function BaseClass:flatten(amount)
 	if isServer then
 		-- Store flatten count in instance for persistence
 		if not self.instance:FindFirstChild("FlattenCount") then
-			local flattenCountValue = Instance.new("IntValue")
+			local flattenCountValue = Instance.new("NumberValue")
 			flattenCountValue.Name = "FlattenCount"
 			flattenCountValue.Value = self.flattenCount
 			flattenCountValue.Parent = self.instance

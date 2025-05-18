@@ -94,7 +94,7 @@ DoughRemotes.CreateDough.OnClientEvent:Connect(function(doughId)
 	create_re_attempts = 0
 end)
 
-DoughRemotes.SliceDough.OnClientEvent:Connect(function(oldDoughId, newDoughId1, newDoughId2)
+DoughRemotes.SplitDough.OnClientEvent:Connect(function(oldDoughId, newDoughId1, newDoughId2)
 	print("Client: Handling sliced dough", oldDoughId, "into", newDoughId1, "and", newDoughId2)
 	while create_re_attempts < CREATE_RE_MAX_ATTEMPTS do
 		-- Server has created new doughs, we need to track them
@@ -123,14 +123,14 @@ DoughRemotes.CombineDoughs.OnClientEvent:Connect(function(targetDoughId, doughsT
 	print("Client: Updated combined dough", targetDoughId)
 end)
 
-DoughRemotes.FlattenDough.OnClientEvent:Connect(function(doughId, amount)
-	-- Update the flatten count on the client
+DoughRemotes.SetFlattenValue.OnClientEvent:Connect(function(doughId, value)
+	-- Update the flatten value on the client
 	local dough = clientDoughs[doughId]
 	if dough then
-		dough.flattenCount = (dough.flattenCount or 0) + 1
+		dough.flattenCount = value
 	end
 
-	print("Client: Updated flattened dough", doughId)
+	print("Client: Updated flatten value for dough", doughId, "to", value)
 end)
 
 DoughRemotes.UpdateDoughPosition.OnClientEvent:Connect(function(doughId, position)
@@ -162,16 +162,16 @@ local function getDoughFromInstance(instance)
 	return nil
 end
 
-local function sliceDough(doughId, sliceStart, sliceEnd)
-	DoughRemotes.SliceDough:FireServer(doughId, sliceStart, sliceEnd)
+local function splitDough(doughId, sliceStart, sliceEnd)
+	DoughRemotes.SplitDough:FireServer(doughId, sliceStart, sliceEnd)
 end
 
 local function combineDoughs(targetDoughId, doughsToRemoveIds, totalSizeValue)
 	DoughRemotes.CombineDoughs:FireServer(targetDoughId, doughsToRemoveIds, totalSizeValue)
 end
 
-local function flattenDough(doughId, amount)
-	DoughRemotes.FlattenDough:FireServer(doughId, amount)
+local function setFlattenValue(doughId, value)
+	DoughRemotes.SetFlattenValue:FireServer(doughId, value)
 end
 
 local function updateDoughPosition(doughId, position)
@@ -263,20 +263,20 @@ getDoughFromInstanceBindable.Name = "GetDoughFromInstance"
 getDoughFromInstanceBindable.OnInvoke = getDoughFromInstance
 getDoughFromInstanceBindable.Parent = clientFolder
 
-local sliceDoughBindable = Instance.new("BindableFunction")
-sliceDoughBindable.Name = "SliceDough"
-sliceDoughBindable.OnInvoke = sliceDough
-sliceDoughBindable.Parent = clientFolder
+local splitDoughBindable = Instance.new("BindableFunction")
+splitDoughBindable.Name = "SplitDough"
+splitDoughBindable.OnInvoke = splitDough
+splitDoughBindable.Parent = clientFolder
 
 local combineDoughsBindable = Instance.new("BindableFunction")
 combineDoughsBindable.Name = "CombineDoughs"
 combineDoughsBindable.OnInvoke = combineDoughs
 combineDoughsBindable.Parent = clientFolder
 
-local flattenDoughBindable = Instance.new("BindableFunction")
-flattenDoughBindable.Name = "FlattenDough"
-flattenDoughBindable.OnInvoke = flattenDough
-flattenDoughBindable.Parent = clientFolder
+local setFlattenValueBindable = Instance.new("BindableFunction")
+setFlattenValueBindable.Name = "SetFlattenValue"
+setFlattenValueBindable.OnInvoke = setFlattenValue
+setFlattenValueBindable.Parent = clientFolder
 
 local updateDoughPositionBindable = Instance.new("BindableFunction")
 updateDoughPositionBindable.Name = "UpdateDoughPosition"

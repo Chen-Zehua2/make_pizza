@@ -340,7 +340,7 @@ function DragSystem.getTrackedObjects()
 end
 
 -- Function to set slicing active state
-function DragSystem.setSlicingActive(active)
+function DragSystem.setSplittingActive(active)
 	slicingActive = active
 end
 

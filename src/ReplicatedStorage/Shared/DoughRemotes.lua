@@ -30,10 +30,9 @@ end
 
 -- Create/get all the RemoteEvents
 DoughRemotes.CreateDough = getRemoteEvent("CreateDough")
-DoughRemotes.SliceDough = getRemoteEvent("SliceDough")
+DoughRemotes.SplitDough = getRemoteEvent("SplitDough")
 DoughRemotes.CombineDoughs = getRemoteEvent("CombineDoughs")
-DoughRemotes.FlattenDough = getRemoteEvent("FlattenDough")
-DoughRemotes.UnflattenDough = getRemoteEvent("UnflattenDough")
+DoughRemotes.SetFlattenValue = getRemoteEvent("SetFlattenValue")
 DoughRemotes.UpdateDoughPosition = getRemoteEvent("UpdateDoughPosition")
 DoughRemotes.DestroyDough = getRemoteEvent("DestroyDough")
 

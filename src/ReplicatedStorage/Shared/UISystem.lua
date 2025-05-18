@@ -5,7 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local SliceSystem = require(ReplicatedStorage.Shared.SliceSystem)
+local SplitSystem = require(ReplicatedStorage.Shared.SplitSystem)
 local BaseClass = require(ReplicatedStorage.Shared.BaseClass)
 
 -- Check if we're running on client or server
@@ -77,7 +77,7 @@ function UISystem.showObjectUI(object)
 	billboardGui.Active = true
 	billboardGui.AlwaysOnTop = true
 	billboardGui.Size = UDim2.new(0, 150, 0, 170) -- Increase height for cooking info
-	billboardGui.StudsOffset = Vector3.new(partSize.X + 0.2, 2, 0) -- Position above the object
+	billboardGui.StudsOffset = Vector3.new(0, partSize.Y + 5, 0) -- Position above the object
 	billboardGui.Adornee = part
 	billboardGui.Parent = PlayerGui
 
@@ -140,36 +140,24 @@ function UISystem.showObjectUI(object)
 	sizeInfo.Font = Enum.Font.Gotham
 	sizeInfo.Parent = mainFrame
 
-	-- Flatten count info
-	local flattenInfo = Instance.new("TextLabel")
-	flattenInfo.Name = "FlattenInfo"
-	flattenInfo.Size = UDim2.new(1, 0, 0, 20)
-	flattenInfo.Position = UDim2.new(0, 0, 0, 48)
-	flattenInfo.BackgroundTransparency = 1
-	flattenInfo.Text = "Flattened: " .. flattenCount .. " times"
-	flattenInfo.TextColor3 = Color3.fromRGB(200, 255, 200)
-	flattenInfo.TextSize = 14
-	flattenInfo.Font = Enum.Font.Gotham
-	flattenInfo.Parent = mainFrame
-
 	-- Cooking state info
 	local cookingInfo = Instance.new("TextLabel")
 	cookingInfo.Name = "CookingInfo"
 	cookingInfo.Size = UDim2.new(1, 0, 0, 20)
-	cookingInfo.Position = UDim2.new(0, 0, 0, 68)
+	cookingInfo.Position = UDim2.new(0, 0, 0, 48)
 	cookingInfo.BackgroundTransparency = 1
 
 	-- Set text color based on cooking state
 	local textColor
-	if cookingState == "Raw" then
+	if cookingState == "Raw Dough" then
 		textColor = Color3.fromRGB(200, 200, 200) -- Light gray
 	elseif cookingState == "Slightly Cooked" then
 		textColor = Color3.fromRGB(220, 220, 150) -- Light yellow
-	elseif cookingState == "Cooked" then
+	elseif cookingState == "Half-Baked" then
 		textColor = Color3.fromRGB(230, 190, 100) -- Light brown
-	elseif cookingState == "Well Cooked" then
+	elseif cookingState == "Well-Baked" then
 		textColor = Color3.fromRGB(210, 160, 70) -- Darker brown
-	elseif cookingState == "Perfectly Cooked" then
+	elseif cookingState == "Perfectly Baked" then
 		textColor = Color3.fromRGB(200, 130, 50) -- Perfect brown
 	else -- Burnt
 		textColor = Color3.fromRGB(80, 50, 30) -- Dark brown/black
@@ -185,7 +173,7 @@ function UISystem.showObjectUI(object)
 	local optionsTitle = Instance.new("TextLabel")
 	optionsTitle.Name = "OptionsTitle"
 	optionsTitle.Size = UDim2.new(1, 0, 0, 20)
-	optionsTitle.Position = UDim2.new(0, 0, 0, 88) -- Adjusted position for cooking info
+	optionsTitle.Position = UDim2.new(0, 0, 0, 68) -- Adjusted position for cooking info
 	optionsTitle.BackgroundTransparency = 1
 	optionsTitle.Text = "OPTIONS"
 	optionsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -194,7 +182,7 @@ function UISystem.showObjectUI(object)
 	optionsTitle.Parent = mainFrame
 
 	-- Add buttons based on options provided by the object
-	local buttonPositionY = 112 -- Adjusted position for cooking info
+	local buttonPositionY = 92 -- Adjusted position for cooking info
 	local buttonHeight = 40
 	local buttonSpacing = 45
 	local currentRow = nil
@@ -212,12 +200,12 @@ function UISystem.showObjectUI(object)
 		canBeManipulated = (doneness <= 0)
 	end
 
-	-- Filter out flatten, unflatten, and combine options if doneness > 0
+	-- Filter out split, flatten, unflatten, and combine options if doneness > 0
 	local filteredOptions = {}
 	for _, option in ipairs(options) do
 		if
 			not canBeManipulated
-			and (option.text == "Flatten" or option.text == "Unflatten" or option.text == "Combine")
+			and (option.text == "Split" or option.text == "Flatten Scale" or option.text == "Combine")
 		then
 			-- Skip these options
 		else
@@ -232,6 +220,12 @@ function UISystem.showObjectUI(object)
 	buttonsContainer.Position = UDim2.new(0, 0, 0, buttonPositionY)
 	buttonsContainer.BackgroundTransparency = 1
 	buttonsContainer.Parent = mainFrame
+
+	local UIListLayout = Instance.new("UIListLayout")
+	UIListLayout.Name = "UIListLayout"
+	UIListLayout.Padding = UDim.new(0, 5)
+	UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	UIListLayout.Parent = buttonsContainer
 
 	-- If no options provided, show message
 	if #filteredOptions == 0 then
@@ -249,68 +243,142 @@ function UISystem.showObjectUI(object)
 		buttonsContainer.Size = UDim2.new(1, 0, 0, 20)
 		billboardGui.Size = UDim2.new(0, 150, 0, 160) -- Adjusted for cooking info
 	else
-		-- Add each button, checking for row layout
+		-- Add each button or scale control
 		for i, option in ipairs(filteredOptions) do
-			-- Check if we need to create a new row or use the current one
-			if option.layout == "row" then
-				-- If this is the first button in a row, create a new container
-				if not currentRow then
-					currentRow = Instance.new("Frame")
-					currentRow.Name = "ButtonRow"
-					currentRow.Size = UDim2.new(1, 0, 0, buttonHeight)
-					currentRow.Position = UDim2.new(0, 0, 0, rowPositionY - buttonPositionY)
-					currentRow.BackgroundTransparency = 1
-					currentRow.Parent = buttonsContainer
+			if option.type == "scale" then
+				-- Create scale control container
+				local scaleContainer = Instance.new("Frame")
+				scaleContainer.Name = option.text .. "Container"
+				scaleContainer.Size = UDim2.new(1, 0, 0, 80) -- Increased height
+				scaleContainer.Position = UDim2.new(0, 0, 0, rowPositionY - buttonPositionY)
+				scaleContainer.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+				scaleContainer.BorderSizePixel = 0
+				scaleContainer.Parent = buttonsContainer
+
+				-- Add rounded corners to container
+				local containerCorner = Instance.new("UICorner")
+				containerCorner.CornerRadius = UDim.new(0, 8)
+				containerCorner.Parent = scaleContainer
+
+				-- Add label
+				local label = Instance.new("TextLabel")
+				label.Name = "Label"
+				label.Size = UDim2.new(1, -20, 0, 20)
+				label.Position = UDim2.new(0, 10, 0, 10) -- Adjusted padding
+				label.BackgroundTransparency = 1
+				label.Text = option.text
+				label.TextColor3 = Color3.fromRGB(255, 255, 255)
+				label.TextSize = 14
+				label.Font = Enum.Font.GothamBold
+				label.Parent = scaleContainer
+
+				-- Create slider background
+				local sliderBg = Instance.new("Frame")
+				sliderBg.Name = "SliderBackground"
+				sliderBg.Size = UDim2.new(1, -20, 0, 30) -- Increased height
+				sliderBg.Position = UDim2.new(0, 10, 0, 35) -- Adjusted position
+				sliderBg.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+				sliderBg.BorderSizePixel = 0
+				sliderBg.Parent = scaleContainer
+
+				-- Add rounded corners to slider background
+				local sliderCorner = Instance.new("UICorner")
+				sliderCorner.CornerRadius = UDim.new(0, 15) -- Increased corner radius
+				sliderCorner.Parent = sliderBg
+
+				-- Create slider knob
+				local sliderKnob = Instance.new("Frame")
+				sliderKnob.Name = "SliderKnob"
+				sliderKnob.Size = UDim2.new(0, 30, 1, 0) -- Increased width
+				sliderKnob.BackgroundColor3 = option.color
+				sliderKnob.BorderSizePixel = 0
+				sliderKnob.AnchorPoint = Vector2.new(0.5, 0)
+				sliderKnob.Parent = sliderBg
+
+				-- Add rounded corners to knob
+				local knobCorner = Instance.new("UICorner")
+				knobCorner.CornerRadius = UDim.new(0.5, 0)
+				knobCorner.Parent = sliderKnob
+
+				-- Function to update slider position and value
+				local function updateSliderToValue(value)
+					-- Clamp and round the value
+					value = math.clamp(value, option.min, option.max)
+					value = math.floor(value * 10) / 10 -- Round to 1 decimal place
+
+					-- Calculate normalized position (0 to 1)
+					local normalizedValue = (value - option.min) / (option.max - option.min)
+
+					-- Update knob position
+					sliderKnob.Position = UDim2.new(normalizedValue, 0, 0, 0)
+
+					return value
 				end
 
-				-- Create the button in the row
-				local button = Instance.new("TextButton")
-				button.Name = option.text .. "Button"
-				button.Size = UDim2.new(option.width or 0.48, 0, 1, 0)
+				-- Set initial value
+				local lastValidValue = updateSliderToValue(flattenCount)
 
-				-- Position based on whether it's the first or second button in row
-				if option.width == 0.48 or not option.width then
-					if i > 1 and filteredOptions[i - 1].layout == "row" then
-						button.Position = UDim2.new(0.52, 0, 0, 0) -- Second button position
-					else
-						button.Position = UDim2.new(0, 0, 0, 0) -- First button position
+				-- Variables for dragging
+				local isDragging = false
+
+				-- Function to handle mouse movement while dragging
+				local function updateFromMousePosition(inputPosition)
+					-- Get relative position within slider background
+					local relativeX = inputPosition.X - sliderBg.AbsolutePosition.X
+					local sliderWidth = sliderBg.AbsoluteSize.X
+
+					-- Calculate normalized position (0-1) directly from mouse position
+					local normalizedValue = math.clamp(relativeX / sliderWidth, 0, 1)
+					local newValue = option.min + (normalizedValue * (option.max - option.min))
+
+					-- Update slider and get the actual (clamped) value
+					newValue = updateSliderToValue(newValue)
+
+					-- Only call callback if value changed
+					if newValue ~= lastValidValue then
+						lastValidValue = newValue
+						if option.callback then
+							option.callback(newValue)
+						end
 					end
 				end
 
-				button.BackgroundColor3 = option.color -- Use the fixed color defined in the option
-				button.Text = option.text
-				button.TextColor3 = Color3.fromRGB(0, 0, 0)
-				button.TextSize = 16
-				button.Font = Enum.Font.GothamSemibold
-				button.Parent = currentRow
-
-				-- Rounded corners for button
-				local buttonCorner = Instance.new("UICorner")
-				buttonCorner.CornerRadius = UDim.new(0, 8)
-				buttonCorner.Parent = button
-
-				-- Button click action
-				button.MouseButton1Click:Connect(function()
-					print(option.text .. " button clicked!")
-					-- Disconnect the UI click handler before destroying
-					if uiClickHandler then
-						uiClickHandler:Disconnect()
-						uiClickHandler = nil
-					end
-					billboardGui:Destroy() -- Remove UI
-					currentUI = nil
-
-					-- Call the provided callback function
-					if option.callback then
-						option.callback()
+				-- Handle slider interaction
+				sliderBg.InputBegan:Connect(function(input)
+					if input.UserInputType == Enum.UserInputType.MouseButton1 then
+						isDragging = true
+						updateFromMousePosition(input.Position)
 					end
 				end)
 
-				-- Reset currentRow if this is the last button in the row
-				if i < #filteredOptions and filteredOptions[i + 1].layout ~= "row" then
-					currentRow = nil
-					rowPositionY = rowPositionY + buttonSpacing
-				end
+				sliderBg.InputChanged:Connect(function(input)
+					if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+						updateFromMousePosition(input.Position)
+					end
+				end)
+
+				-- Also handle knob input separately for better responsiveness
+				sliderKnob.InputBegan:Connect(function(input)
+					if input.UserInputType == Enum.UserInputType.MouseButton1 then
+						isDragging = true
+						updateFromMousePosition(input.Position)
+					end
+				end)
+
+				sliderKnob.InputChanged:Connect(function(input)
+					if isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+						updateFromMousePosition(input.Position)
+					end
+				end)
+
+				-- Also connect to UserInputService for global mouse release
+				UserInputService.InputEnded:Connect(function(input)
+					if input.UserInputType == Enum.UserInputType.MouseButton1 then
+						isDragging = false
+					end
+				end)
+
+				rowPositionY = rowPositionY + 65 -- Increase more for scale control
 			else
 				-- Regular button (full width)
 				currentRow = nil
@@ -485,11 +553,16 @@ function UISystem.setupUpdateConnection(object, mainFrame)
 			-- Check if we need to update buttons based on doneness change
 			if buttonsContainer and currentDoneness > 0 then
 				-- If doneness is > 0, we need to remove flatten/unflatten/combine buttons
+				local splitButton = buttonsContainer:FindFirstChild("SplitButton", true)
 				local flattenButton = buttonsContainer:FindFirstChild("FlattenButton", true)
 				local unflattenButton = buttonsContainer:FindFirstChild("UnflattenButton", true)
 				local combineButton = buttonsContainer:FindFirstChild("CombineButton", true)
 
 				-- Remove buttons if they exist
+				if splitButton then
+					splitButton:Destroy()
+				end
+
 				if flattenButton then
 					-- Check if it's in a row
 					local buttonRow = flattenButton.Parent

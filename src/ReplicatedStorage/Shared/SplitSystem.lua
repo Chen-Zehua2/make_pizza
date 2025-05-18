@@ -1,5 +1,5 @@
--- SliceSystem.lua
--- Handles the slicing interface and operations for any object
+-- SplitSystem.lua
+-- Handles the splitting interface and operations for any object
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -23,52 +23,52 @@ if isClient then
 	PlayerGui = player:WaitForChild("PlayerGui")
 end
 
-local SliceSystem = {}
+local SplitSystem = {}
 
 -- Constants
-local MINIMUM_SLICE_LENGTH_PERCENTAGE = 0.4 -- Require slices to go through at least 40% of the diameter
+local MINIMUM_SPLIT_LENGTH_PERCENTAGE = 0.4 -- Require splits to go through at least 40% of the diameter
 
--- Variables for slice mode
-local isSlicingActive = false
-local sliceStart = nil
-local sliceEnd = nil
-local slicingUI = nil
+-- Variables for split mode
+local isSplittingActive = false
+local splitStart = nil
+local splitEnd = nil
+local splittingUI = nil
 local drawingSurface = nil
 local edgeVisual = nil
-local sliceVisuals = {}
+local splitVisuals = {}
 local targetObject = nil
 local objectClass = nil
 local originalCameraType = nil
 local originalCameraSubject = nil
 local disabledClickDetectors = {} -- Store click detectors with their original distances
-local sliceComplete = false -- Flag to prevent multiple slice attempts
+local splitComplete = false -- Flag to prevent multiple split attempts
 
--- Function to start slicing the target object
-function SliceSystem.startSlicing(object, objectClassModule)
+-- Function to start splitting the target object
+function SplitSystem.startSplitting(object, objectClassModule)
 	if not isClient then
 		return -- Only run on client
 	end
 
-	print("Starting to slice object...")
+	print("Starting to split object...")
 
 	-- Make sure we have the object and its class
 	if not object or not object.instance then
-		print("Cannot slice: invalid object")
+		print("Cannot split: invalid object")
 		return
 	end
 
-	-- Reset the slicing state
-	sliceComplete = false
+	-- Reset the splitting state
+	splitComplete = false
 
 	-- Store the object and its class
 	targetObject = object
 	objectClass = objectClassModule
 
-	-- Notify DragSystem that slicing is active to prevent dragging
-	DragSystem.setSlicingActive(true)
+	-- Notify DragSystem that splitting is active to prevent dragging
+	DragSystem.setSplittingActive(true)
 
-	-- Set slicing active flag to control input
-	isSlicingActive = true
+	-- Set splitting active flag to control input
+	isSplittingActive = true
 
 	-- Disable click detectors for all objects in the workspace
 	for _, part in pairs(Workspace:GetDescendants()) do
@@ -132,11 +132,11 @@ function SliceSystem.startSlicing(object, objectClassModule)
 	edgeVisual.Anchored = true
 	edgeVisual.Parent = Workspace
 
-	-- Create UI to show slicing instructions
-	local sliceInstructions = Instance.new("ScreenGui")
-	sliceInstructions.Name = "SliceInstructions"
-	sliceInstructions.ResetOnSpawn = false
-	sliceInstructions.Parent = PlayerGui
+	-- Create UI to show splitting instructions
+	local splitInstructions = Instance.new("ScreenGui")
+	splitInstructions.Name = "SplitInstructions"
+	splitInstructions.ResetOnSpawn = false
+	splitInstructions.Parent = PlayerGui
 
 	local instructionFrame = Instance.new("Frame")
 	instructionFrame.Size = UDim2.new(0, 400, 0, 80)
@@ -153,17 +153,17 @@ function SliceSystem.startSlicing(object, objectClassModule)
 	instructionText.Size = UDim2.new(1, -20, 1, -20)
 	instructionText.Position = UDim2.new(0, 10, 0, 10)
 	instructionText.BackgroundTransparency = 1
-	instructionText.Text = "SLICE MODE: Click and drag to slice\nPress E to cancel"
+	instructionText.Text = "SPLIT MODE: Click and drag to split\nPress E to cancel"
 	instructionText.TextColor3 = Color3.fromRGB(255, 255, 255)
 	instructionText.TextSize = 16
 	instructionText.Font = Enum.Font.GothamBold
 	instructionText.Parent = instructionFrame
 
-	instructionFrame.Parent = sliceInstructions
+	instructionFrame.Parent = splitInstructions
 
-	slicingUI = sliceInstructions
+	splittingUI = splitInstructions
 
-	-- Variables for slice drawing
+	-- Variables for split drawing
 	local isDrawing = false
 	local drawingPoints = {}
 	local mouseIsDown = false
@@ -171,7 +171,7 @@ function SliceSystem.startSlicing(object, objectClassModule)
 	-- Create visual representation of a point
 	local function createPointVisual(position, color)
 		local point = Instance.new("Part")
-		point.Name = "SlicePoint"
+		point.Name = "SplitPoint"
 		point.Shape = Enum.PartType.Ball
 		point.Size = Vector3.new(0.2, 0.2, 0.2) -- Smaller points
 		point.Position = position
@@ -181,7 +181,7 @@ function SliceSystem.startSlicing(object, objectClassModule)
 		point.Anchored = true
 		point.Parent = Workspace
 
-		table.insert(sliceVisuals, point)
+		table.insert(splitVisuals, point)
 		return point
 	end
 
@@ -191,7 +191,7 @@ function SliceSystem.startSlicing(object, objectClassModule)
 		local distance = direction.Magnitude
 
 		local line = Instance.new("Part")
-		line.Name = "SliceLine"
+		line.Name = "SplitLine"
 		line.Size = Vector3.new(0.05, 0.05, distance) -- Thinner line
 		line.CFrame = CFrame.lookAt(fromPos, toPos) * CFrame.new(0, 0, -distance / 2)
 		line.Anchored = true
@@ -200,7 +200,7 @@ function SliceSystem.startSlicing(object, objectClassModule)
 		line.Material = Enum.Material.Neon
 		line.Parent = Workspace
 
-		table.insert(sliceVisuals, line)
+		table.insert(splitVisuals, line)
 		return line
 	end
 
@@ -252,12 +252,12 @@ function SliceSystem.startSlicing(object, objectClassModule)
 	-- Function to cleanup all visuals
 	local function cleanupVisuals()
 		-- Clear all stored visuals
-		for _, visual in ipairs(sliceVisuals) do
+		for _, visual in ipairs(splitVisuals) do
 			if visual and visual.Parent then
 				visual:Destroy()
 			end
 		end
-		sliceVisuals = {}
+		splitVisuals = {}
 
 		-- Clear drawing surface
 		if drawingSurface and drawingSurface.Parent then
@@ -282,12 +282,12 @@ function SliceSystem.startSlicing(object, objectClassModule)
 		disabledClickDetectors = {}
 	end
 
-	-- Function to clean up the slice mode
-	local function exitSliceMode()
-		-- Reset slice flags and data
-		isSlicingActive = false
-		sliceStart = nil
-		sliceEnd = nil
+	-- Function to clean up the split mode
+	local function exitSplitMode()
+		-- Reset split flags and data
+		isSplittingActive = false
+		splitStart = nil
+		splitEnd = nil
 
 		-- Restore the player's camera
 		if originalCameraType and camera then
@@ -314,13 +314,13 @@ function SliceSystem.startSlicing(object, objectClassModule)
 		-- Clean up all visuals
 		cleanupVisuals()
 
-		-- Make sure the slice drawings are removed
+		-- Make sure the split drawings are removed
 		for _, obj in pairs(Workspace:GetChildren()) do
 			if
 				obj:IsA("BasePart")
 				and (
-					obj.Name == "SlicePoint"
-					or obj.Name == "SliceLine"
+					obj.Name == "SplitPoint"
+					or obj.Name == "SplitLine"
 					or obj.Name == "DrawingSurface"
 					or obj.Name == "ObjectEdgeVisual"
 				)
@@ -332,67 +332,67 @@ function SliceSystem.startSlicing(object, objectClassModule)
 		-- Re-enable click detectors
 		restoreClickDetectors()
 
-		-- Notify DragSystem that slicing is no longer active
-		DragSystem.setSlicingActive(false)
+		-- Notify DragSystem that splitting is no longer active
+		DragSystem.setSplittingActive(false)
 
-		-- Remove the slicing UI
-		if slicingUI then
-			slicingUI:Destroy()
-			slicingUI = nil
+		-- Remove the splitting UI
+		if splittingUI then
+			splittingUI:Destroy()
+			splittingUI = nil
 		end
 
 		-- Clear the target object
 		targetObject = nil
-		print("Exited slice mode")
+		print("Exited split mode")
 	end
 
-	-- Function to finalize and perform the slice
-	local function finalizeSlice()
-		-- Prevent multiple slice attempts
-		if sliceComplete then
-			print("Slice already completed, ignoring additional slice attempt")
+	-- Function to finalize and perform the split
+	local function finalizeSplit()
+		-- Prevent multiple split attempts
+		if splitComplete then
+			print("Split already completed, ignoring additional split attempt")
 			return
 		end
 
 		-- Make sure we have valid target object
 		if not targetObject or not targetObject.instance then
-			print("Invalid slice: missing target object or instance")
-			exitSliceMode()
+			print("Invalid split: missing target object or instance")
+			exitSplitMode()
 			return
 		end
 
-		-- Make sure we have valid start and end points for the slice
-		if not sliceStart or not sliceEnd then
-			print("Invalid slice: missing start or end point")
-			exitSliceMode()
+		-- Make sure we have valid start and end points for the split
+		if not splitStart or not splitEnd then
+			print("Invalid split: missing start or end point")
+			exitSplitMode()
 			return
 		end
 
-		-- Set slice as complete to prevent multiple attempts
-		sliceComplete = true
+		-- Set split as complete to prevent multiple attempts
+		splitComplete = true
 
-		-- Check if the slice is long enough (considering the object's radius)
+		-- Check if the split is long enough (considering the object's radius)
 		local objectRadius = math.max(objectSize.X, objectSize.Z) / 2
-		local sliceLength = (sliceEnd - sliceStart).Magnitude
-		local sliceLengthRatio = sliceLength / (objectRadius * 2)
+		local splitLength = (splitEnd - splitStart).Magnitude
+		local splitLengthRatio = splitLength / (objectRadius * 2)
 
-		if sliceLengthRatio < MINIMUM_SLICE_LENGTH_PERCENTAGE then
+		if splitLengthRatio < MINIMUM_SPLIT_LENGTH_PERCENTAGE then
 			print(
-				"Slice too short, must be at least " .. (MINIMUM_SLICE_LENGTH_PERCENTAGE * 100) .. "% of the diameter"
+				"Split too short, must be at least " .. (MINIMUM_SPLIT_LENGTH_PERCENTAGE * 100) .. "% of the diameter"
 			)
-			exitSliceMode()
+			exitSplitMode()
 			return
 		end
 
-		-- Get the dough ID to slice server-side
+		-- Get the dough ID to split server-side
 		local doughId = targetObject.instance:GetAttribute("DoughId")
 		if not doughId then
-			warn("Cannot slice: missing DoughId attribute")
-			exitSliceMode()
+			warn("Cannot split: missing DoughId attribute")
+			exitSplitMode()
 			return
 		end
 
-		-- Stop receiving input immediately to prevent further slice actions
+		-- Stop receiving input immediately to prevent further split actions
 		if mouseDown then
 			mouseDown:Disconnect()
 			mouseDown = nil
@@ -406,8 +406,8 @@ function SliceSystem.startSlicing(object, objectClassModule)
 			mouseMove = nil
 		end
 
-		-- Calculate slice direction and perform client-side calculations
-		-- This is now done client-side instead of sending raw slice points to server
+		-- Calculate split direction and perform client-side calculations
+		-- This is now done client-side instead of sending raw split points to server
 
 		-- Get all the necessary values for the calculation
 		local part = targetObject.instance
@@ -415,39 +415,39 @@ function SliceSystem.startSlicing(object, objectClassModule)
 		local partSize = part.Size
 		local sizeValue = part:FindFirstChild("SizeValue") and part.SizeValue.Value or 1
 
-		-- Calculate the slice direction and normalize it to XZ plane
-		local sliceDir = Vector3.new(sliceEnd.X - sliceStart.X, 0, sliceEnd.Z - sliceStart.Z).Unit
+		-- Calculate the split direction and normalize it to XZ plane
+		local splitDir = Vector3.new(splitEnd.X - splitStart.X, 0, splitEnd.Z - splitStart.Z).Unit
 
-		-- Calculate perpendicular vector to the slice (for offsetting the new bases)
-		local perpDir = Vector3.new(-sliceDir.Z, 0, sliceDir.X)
+		-- Calculate perpendicular vector to the split (for offsetting the new bases)
+		local perpDir = Vector3.new(-splitDir.Z, 0, splitDir.X)
 
 		-- Calculate part center in XZ plane
 		local partCenterXZ = Vector3.new(partPosition.X, 0, partPosition.Z)
 
-		-- Calculate slice center in XZ plane
-		local sliceCenter = Vector3.new((sliceStart.X + sliceEnd.X) / 2, 0, (sliceStart.Z + sliceEnd.Z) / 2)
+		-- Calculate split center in XZ plane
+		local splitCenter = Vector3.new((splitStart.X + splitEnd.X) / 2, 0, (splitStart.Z + splitEnd.Z) / 2)
 
-		-- Calculate distance from slice center to part center
-		local centerToSlice = (sliceCenter - partCenterXZ).Magnitude
+		-- Calculate distance from split center to part center
+		local centerToSplit = (splitCenter - partCenterXZ).Magnitude
 
 		-- Calculate the ratio for splitting (0.5 means perfect middle, closer to 0 or 1 means uneven)
-		local splitRatio = math.clamp(centerToSlice / objectRadius, 0.01, 0.99)
+		local splitRatio = math.clamp(centerToSplit / objectRadius, 0.01, 0.99)
 
 		-- Calculate size values for the two halves
 		local largerSideRatio = 0.5 + (splitRatio * 0.5) -- Ranges from 0.5 to 1.0
 		local smallerSideRatio = 1 - largerSideRatio -- Ranges from 0.5 to 0.0
 
-		-- Determine which side is smaller (the one the slice is closer to)
-		local sideSign = perpDir:Dot(sliceCenter - partCenterXZ)
+		-- Determine which side is smaller (the one the split is closer to)
+		local sideSign = perpDir:Dot(splitCenter - partCenterXZ)
 
 		-- Assign size values based on which side is smaller
 		local sizeValue1, sizeValue2
 		if sideSign >= 0 then
-			-- Slice is closer to side 2
+			-- Split is closer to side 2
 			sizeValue1 = sizeValue * largerSideRatio
 			sizeValue2 = sizeValue * smallerSideRatio
 		else
-			-- Slice is closer to side 1
+			-- Split is closer to side 1
 			sizeValue1 = sizeValue * smallerSideRatio
 			sizeValue2 = sizeValue * largerSideRatio
 		end
@@ -468,26 +468,26 @@ function SliceSystem.startSlicing(object, objectClassModule)
 			partPosition.Z - perpDir.Z * objectRadius * offsetRatio1 * 0.5
 		)
 
-		print("Slicing with computed values:", string.format("%.2f/%.2f", sizeValue1, sizeValue2))
+		print("Splitting with computed values:", string.format("%.2f/%.2f", sizeValue1, sizeValue2))
 
 		-- Clear all visuals before sending to server
 		cleanupVisuals()
 
-		-- Store slicing data
-		local sliceData = {
+		-- Store splitting data
+		local splitData = {
 			pos1 = pos1,
 			pos2 = pos2,
 			sizeValue1 = sizeValue1,
 			sizeValue2 = sizeValue2,
-			sliceStart = sliceStart,
-			sliceEnd = sliceEnd,
+			splitStart = splitStart,
+			splitEnd = splitEnd,
 		}
 
-		-- Store relevant variables locally since they'll be wiped when exiting slice mode
+		-- Store relevant variables locally since they'll be wiped when exiting split mode
 		local localTargetObjectId = doughId
 
-		-- Exit slice mode (cleanup will be handled by remote event response)
-		exitSliceMode()
+		-- Exit split mode (cleanup will be handled by remote event response)
+		exitSplitMode()
 
 		-- Make sure we don't have any lingering visuals
 		task.defer(function()
@@ -496,8 +496,8 @@ function SliceSystem.startSlicing(object, objectClassModule)
 				if
 					obj:IsA("BasePart")
 					and (
-						obj.Name == "SlicePoint"
-						or obj.Name == "SliceLine"
+						obj.Name == "SplitPoint"
+						or obj.Name == "SplitLine"
 						or obj.Name == "DrawingSurface"
 						or obj.Name == "ObjectEdgeVisual"
 					)
@@ -507,9 +507,9 @@ function SliceSystem.startSlicing(object, objectClassModule)
 			end
 		end)
 
-		-- Send the computed slice data to the server
+		-- Send the computed split data to the server
 		local DoughRemotes = require(ReplicatedStorage.Shared.DoughRemotes)
-		DoughRemotes.SliceDough:FireServer(localTargetObjectId, sliceData)
+		DoughRemotes.SplitDough:FireServer(localTargetObjectId, splitData)
 	end
 
 	-- Handle mouse button down
@@ -519,8 +519,8 @@ function SliceSystem.startSlicing(object, objectClassModule)
 		end
 
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			-- Check if slicing is still active
-			if not isSlicingActive or sliceComplete then
+			-- Check if splitting is still active
+			if not isSplittingActive or splitComplete then
 				return
 			end
 
@@ -529,17 +529,17 @@ function SliceSystem.startSlicing(object, objectClassModule)
 			local projectedPosition = projectToObjectPlane(mousePos)
 
 			if projectedPosition and isPointWithinObject(projectedPosition) then
-				-- Start drawing the slice
+				-- Start drawing the split
 				isDrawing = true
 				mouseIsDown = true
-				sliceStart = projectedPosition
+				splitStart = projectedPosition
 
-				-- Create a visual point where the slice starts
-				createPointVisual(sliceStart, Color3.fromRGB(0, 255, 0))
+				-- Create a visual point where the split starts
+				createPointVisual(splitStart, Color3.fromRGB(0, 255, 0))
 			end
 		elseif input.KeyCode == Enum.KeyCode.E then
-			-- User pressed E to cancel slicing
-			exitSliceMode()
+			-- User pressed E to cancel splitting
+			exitSplitMode()
 		end
 	end)
 
@@ -550,20 +550,20 @@ function SliceSystem.startSlicing(object, objectClassModule)
 		end
 
 		if input.UserInputType == Enum.UserInputType.MouseButton1 and mouseIsDown then
-			-- Check if slicing is still active
-			if not isSlicingActive or sliceComplete then
+			-- Check if splitting is still active
+			if not isSplittingActive or splitComplete then
 				return
 			end
 
-			-- End drawing the slice
+			-- End drawing the split
 			mouseIsDown = false
 			isDrawing = false
 
-			-- Only finalize the slice if we have a valid end point
-			if sliceEnd then
-				finalizeSlice()
+			-- Only finalize the split if we have a valid end point
+			if splitEnd then
+				finalizeSplit()
 			else
-				exitSliceMode()
+				exitSplitMode()
 			end
 		end
 	end)
@@ -575,8 +575,8 @@ function SliceSystem.startSlicing(object, objectClassModule)
 		end
 
 		if input.UserInputType == Enum.UserInputType.MouseMovement and isDrawing then
-			-- Check if slicing is still active
-			if not isSlicingActive or sliceComplete then
+			-- Check if splitting is still active
+			if not isSplittingActive or splitComplete then
 				return
 			end
 
@@ -585,21 +585,21 @@ function SliceSystem.startSlicing(object, objectClassModule)
 			local projectedPosition = projectToObjectPlane(mousePos)
 
 			if projectedPosition then
-				-- Update the slice end point
-				sliceEnd = projectedPosition
+				-- Update the split end point
+				splitEnd = projectedPosition
 
 				-- Clear existing visuals (except the start point)
-				for i = #sliceVisuals, 2, -1 do
-					sliceVisuals[i]:Destroy()
-					table.remove(sliceVisuals, i)
+				for i = #splitVisuals, 2, -1 do
+					splitVisuals[i]:Destroy()
+					table.remove(splitVisuals, i)
 				end
 
-				-- Create a visual point where the slice currently ends
-				createPointVisual(sliceEnd, Color3.fromRGB(255, 0, 0))
+				-- Create a visual point where the split currently ends
+				createPointVisual(splitEnd, Color3.fromRGB(255, 0, 0))
 
 				-- Draw a line connecting the points
-				if sliceStart then
-					createLineSegment(sliceStart, sliceEnd)
+				if splitStart then
+					createLineSegment(splitStart, splitEnd)
 				end
 			end
 		end
@@ -619,7 +619,7 @@ function SliceSystem.startSlicing(object, objectClassModule)
 	end
 
 	-- Store cleanup function to be called when the object is destroyed
-	targetObject.cleanupSlice = cleanupConnections
+	targetObject.cleanupSplit = cleanupConnections
 end
 
-return SliceSystem
+return SplitSystem
