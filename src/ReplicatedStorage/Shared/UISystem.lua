@@ -5,8 +5,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local SplitSystem = require(ReplicatedStorage.Shared.SplitSystem)
 local BaseClass = require(ReplicatedStorage.Shared.BaseClass)
+local RecipeSystem = require(ReplicatedStorage.Shared.RecipeSystem)
+local Roact = require(ReplicatedStorage.Shared.Roact)
 
 -- Check if we're running on client or server
 local isClient = RunService:IsClient()
@@ -203,14 +206,25 @@ function UISystem.showObjectUI(object)
 	-- Filter out split, flatten, unflatten, and combine options if doneness > 0
 	local filteredOptions = {}
 	for _, option in ipairs(options) do
-		if
-			not canBeManipulated
-			and (option.text == "Split" or option.text == "Flatten Scale" or option.text == "Combine")
-		then
-			-- Skip these options
-		else
+		if canBeManipulated then
 			table.insert(filteredOptions, option)
+		else
+			-- if doneness > 0 (i.e., not canBeManipulated), filter out specific manipulation options
+			if not (option.text == "Split" or option.text == "Flatten Scale" or option.text == "Combine") then
+				table.insert(filteredOptions, option)
+			end
 		end
+	end
+
+	-- Add "Recipify" button if doneness > 0
+	if doneness > 0 then
+		table.insert(filteredOptions, {
+			text = "Recipify",
+			color = Color3.fromRGB(255, 215, 0), -- Gold color for recipe button
+			callback = function()
+				UISystem.showRecipeUI(object)
+			end,
+		})
 	end
 
 	-- Create container for option buttons - will be useful for dynamic updates
@@ -557,6 +571,7 @@ function UISystem.setupUpdateConnection(object, mainFrame)
 				local flattenButton = buttonsContainer:FindFirstChild("FlattenButton", true)
 				local unflattenButton = buttonsContainer:FindFirstChild("UnflattenButton", true)
 				local combineButton = buttonsContainer:FindFirstChild("CombineButton", true)
+				local flattenScaleControl = buttonsContainer:FindFirstChild("Flatten ScaleContainer", true) -- Find the container for scale control
 
 				-- Remove buttons if they exist
 				if splitButton then
@@ -582,6 +597,34 @@ function UISystem.setupUpdateConnection(object, mainFrame)
 
 				if combineButton then
 					combineButton:Destroy()
+				end
+
+				if flattenScaleControl then -- Remove flatten scale control
+					flattenScaleControl:Destroy()
+				end
+
+				-- Check if "Recipify" button needs to be added (if not already present)
+				local recipifyButton = buttonsContainer:FindFirstChild("RecipifyButton", true)
+				if not recipifyButton then
+					local newRecipifyButton = Instance.new("TextButton")
+					newRecipifyButton.Name = "RecipifyButton"
+					newRecipifyButton.Size = UDim2.new(1, 0, 0, 40) -- Assuming standard button height
+					-- newRecipifyButton.Position will be handled by UIListLayout
+					newRecipifyButton.BackgroundColor3 = Color3.fromRGB(255, 215, 0) -- Gold color
+					newRecipifyButton.Text = "Recipify"
+					newRecipifyButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+					newRecipifyButton.TextSize = 16
+					newRecipifyButton.Font = Enum.Font.GothamSemibold
+					newRecipifyButton.Parent = buttonsContainer -- Add to the main buttons container
+
+					local buttonCorner = Instance.new("UICorner")
+					buttonCorner.CornerRadius = UDim.new(0, 8)
+					buttonCorner.Parent = newRecipifyButton
+
+					newRecipifyButton.MouseButton1Click:Connect(function()
+						UISystem.showRecipeUI(currentUIObject) -- Use currentUIObject
+						UISystem.closeUI() -- Close the current options UI
+					end)
 				end
 
 				-- Check if we need to add "No options" message
@@ -657,5 +700,100 @@ end
 function UISystem.getCurrentUI()
 	return currentUI
 end
+
+-- Function to show Recipe Creation UI
+function UISystem.showRecipeUI(object)
+	-- Only run on client
+	if not isClient then
+		return
+	end
+
+	-- Clean up previous UI if it exists
+	if currentUI then
+		UISystem.closeUI()
+	end
+
+	if not object or not object.instance then
+		return
+	end
+
+	-- Create a Roact component for the recipe creation UI
+	local RecipeCreationUI = require(ReplicatedStorage.Shared.UILib.RecipeCreationUI)
+	local handle
+	handle = Roact.mount(
+		Roact.createElement(RecipeCreationUI, {
+			isOpen = true,
+			product = object,
+			onClose = function()
+				Roact.unmount(handle)
+			end,
+		}),
+		PlayerGui
+	)
+end
+
+-- Function to show notification
+function UISystem.showNotification(message, color)
+	-- Only run on client
+	if not isClient then
+		return
+	end
+
+	-- Create notification UI
+	local notifUI = Instance.new("ScreenGui")
+	notifUI.Name = "NotificationUI"
+	notifUI.ResetOnSpawn = false
+	notifUI.Parent = PlayerGui
+
+	local notifFrame = Instance.new("Frame")
+	notifFrame.Name = "NotifFrame"
+	notifFrame.Size = UDim2.new(0, 300, 0, 50)
+	notifFrame.Position = UDim2.new(0.5, -150, 0.9, 0)
+	notifFrame.BackgroundColor3 = color or Color3.fromRGB(59, 138, 235)
+	notifFrame.BorderSizePixel = 0
+	notifFrame.Parent = notifUI
+
+	-- Rounded corners
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = notifFrame
+
+	-- Notification message
+	local notifText = Instance.new("TextLabel")
+	notifText.Name = "NotifText"
+	notifText.Size = UDim2.new(1, -20, 1, 0)
+	notifText.Position = UDim2.new(0, 10, 0, 0)
+	notifText.BackgroundTransparency = 1
+	notifText.Text = message
+	notifText.TextColor3 = Color3.fromRGB(255, 255, 255)
+	notifText.TextSize = 16
+	notifText.Font = Enum.Font.GothamBold
+	notifText.TextWrapped = true
+	notifText.Parent = notifFrame
+
+	-- Animate notification
+	local targetY = notifFrame.Position.Y.Scale - 0.1
+	local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+	local tween = TweenService:Create(notifFrame, tweenInfo, {
+		Position = UDim2.new(0.5, -150, targetY, 0),
+	})
+	tween:Play()
+
+	-- Destroy after a few seconds
+	delay(3, function()
+		-- Fade out animation
+		local fadeTween = TweenService:Create(notifFrame, TweenInfo.new(0.5), {
+			Transparency = 1,
+			Position = UDim2.new(0.5, -150, targetY - 0.05, 0),
+		})
+		fadeTween:Play()
+
+		fadeTween.Completed:Connect(function()
+			notifUI:Destroy()
+		end)
+	end)
+end
+
+-- Recipe Book UI has been moved to RecipeBookUI.lua Roact component
 
 return UISystem
