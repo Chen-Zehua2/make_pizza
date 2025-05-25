@@ -144,11 +144,11 @@ function UISystem.showObjectUI(object)
 	sizeInfo.Parent = mainFrame
 
 	-- Cooking state info
-	local cookingInfo = Instance.new("TextLabel")
-	cookingInfo.Name = "CookingInfo"
-	cookingInfo.Size = UDim2.new(1, 0, 0, 20)
-	cookingInfo.Position = UDim2.new(0, 0, 0, 48)
-	cookingInfo.BackgroundTransparency = 1
+	-- local cookingInfo = Instance.new("TextLabel")
+	-- cookingInfo.Name = "CookingInfo"
+	-- cookingInfo.Size = UDim2.new(1, 0, 0, 20)
+	-- cookingInfo.Position = UDim2.new(0, 0, 0, 48)
+	-- cookingInfo.BackgroundTransparency = 1
 
 	-- Set text color based on cooking state
 	local textColor
@@ -166,11 +166,11 @@ function UISystem.showObjectUI(object)
 		textColor = Color3.fromRGB(80, 50, 30) -- Dark brown/black
 	end
 
-	cookingInfo.Text = "State: " .. cookingState
-	cookingInfo.TextColor3 = textColor
-	cookingInfo.TextSize = 14
-	cookingInfo.Font = Enum.Font.GothamBold
-	cookingInfo.Parent = mainFrame
+	-- cookingInfo.Text = "State: " .. cookingState
+	-- cookingInfo.TextColor3 = textColor
+	-- cookingInfo.TextSize = 14
+	-- cookingInfo.Font = Enum.Font.GothamBold
+	-- cookingInfo.Parent = mainFrame
 
 	-- Options title
 	local optionsTitle = Instance.new("TextLabel")

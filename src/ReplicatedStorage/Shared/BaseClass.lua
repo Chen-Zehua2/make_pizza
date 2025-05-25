@@ -18,6 +18,7 @@ local MINIMUM_SPLIT_LENGTH = 0.75 -- 75% of the base needs to be splitted
 local DEFAULT_BASE_SIZE_VALUE = 1 -- Default base "size" property (for splitting)
 local PERFECT_DONENESS = 600 -- Perfect cooking level
 local BURNT_DONENESS = 900 -- Burnt threshold (50% over perfect)
+local STEAM_DONENESS_THRESHOLD = 400 -- Doneness level at which steam effects start
 
 -- Constructor for a new base object
 function BaseClass.new(params)
@@ -37,6 +38,10 @@ function BaseClass.new(params)
 	-- Baking properties
 	self.cookness = params.cookness or 1 -- Rate at which the object cooks
 	self.doneness = params.doneness or 0 -- Current doneness level
+
+	-- Steam effect tracking
+	self.steamEffect = nil
+	self.lastSteamCheck = 0
 
 	-- Instance for the part
 	self.instance = nil
@@ -157,6 +162,116 @@ function BaseClass:create()
 	return part
 end
 
+-- Create steam effect
+function BaseClass:createSteamEffect()
+	if not self.instance or self.steamEffect then
+		return -- Already has steam effect or no instance
+	end
+
+	-- Create an attachment for the steam effect
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "SteamAttachment"
+	attachment.Position = Vector3.new(0, self.instance.Size.Y / 2, 0) -- Top of the object
+	attachment.Parent = self.instance
+
+	-- Create steam particle effect
+	local steam = Instance.new("ParticleEmitter")
+	steam.Name = "SteamEffect"
+	steam.Parent = attachment
+
+	-- Steam properties
+	steam.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	steam.Lifetime = NumberRange.new(1.0, 2.5)
+	steam.Rate = 50
+	steam.SpreadAngle = Vector2.new(45, 45)
+	steam.Speed = NumberRange.new(2, 4)
+	steam.Acceleration = Vector3.new(0, 2, 0) -- Upward acceleration
+	steam.Drag = 5
+	steam.VelocityInheritance = 0
+
+	-- Size and transparency over lifetime
+	local sizeSequence = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.1),
+		NumberSequenceKeypoint.new(0.5, 0.8),
+		NumberSequenceKeypoint.new(1, 1.2),
+	})
+	steam.Size = sizeSequence
+
+	local transparencySequence = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.3),
+		NumberSequenceKeypoint.new(0.7, 0.7),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	steam.Transparency = transparencySequence
+
+	-- Color (white/light gray steam)
+	local colorSequence = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(230, 230, 230)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 200, 200)),
+	})
+	steam.Color = colorSequence
+
+	-- Store reference
+	self.steamEffect = steam
+
+	print("Created steam effect for", self.name)
+end
+
+-- Remove steam effect
+function BaseClass:removeSteamEffect()
+	if self.steamEffect then
+		-- Find and destroy the attachment and steam effect
+		if self.instance then
+			local attachment = self.instance:FindFirstChild("SteamAttachment")
+			if attachment then
+				attachment:Destroy()
+			end
+		end
+		self.steamEffect = nil
+		print("Removed steam effect for", self.name)
+	end
+end
+
+-- Update steam effect based on doneness
+function BaseClass:updateSteamEffect()
+	local currentTime = tick()
+
+	-- Only check steam every 0.5 seconds to avoid excessive updates
+	if currentTime - self.lastSteamCheck < 0.5 then
+		return
+	end
+	self.lastSteamCheck = currentTime
+
+	local shouldHaveSteam = self.doneness >= STEAM_DONENESS_THRESHOLD and self.doneness < BURNT_DONENESS
+
+	if shouldHaveSteam and not self.steamEffect then
+		self:createSteamEffect()
+	elseif not shouldHaveSteam and self.steamEffect then
+		self:removeSteamEffect()
+	elseif self.steamEffect then
+		-- Adjust steam intensity based on doneness
+		local intensity =
+			math.min(1, (self.doneness - STEAM_DONENESS_THRESHOLD) / (PERFECT_DONENESS - STEAM_DONENESS_THRESHOLD))
+
+		-- Adjust rate based on intensity (more steam when hotter)
+		local baseRate = 30
+		local maxRate = 80
+		self.steamEffect.Rate = baseRate + (maxRate - baseRate) * intensity
+
+		-- Adjust color based on doneness (more yellow/brown when approaching burnt)
+		if self.doneness > PERFECT_DONENESS then
+			local burnProgress = (self.doneness - PERFECT_DONENESS) / (BURNT_DONENESS - PERFECT_DONENESS)
+			local colorSequence = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+				ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 240 - burnProgress * 40, 200 - burnProgress * 50)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 180 - burnProgress * 30, 150 - burnProgress * 50)),
+			})
+			self.steamEffect.Color = colorSequence
+		end
+	end
+end
+
 -- Flatten the base
 function BaseClass:flatten(amount)
 	if not self.instance then
@@ -227,6 +342,7 @@ end
 
 -- Update the doneness value
 function BaseClass:updateDoneness(value)
+	local oldDoneness = self.doneness
 	self.doneness = value
 
 	if isServer and self.instance then
@@ -238,6 +354,11 @@ function BaseClass:updateDoneness(value)
 		else
 			self.instance.Doneness.Value = self.doneness
 		end
+	end
+
+	-- Update steam effect when doneness changes significantly
+	if math.abs(self.doneness - oldDoneness) > 10 then
+		self:updateSteamEffect()
 	end
 end
 
@@ -375,6 +496,9 @@ function BaseClass:performSlice(sliceStart, sliceEnd)
 	local newInstance1 = objClass.new(params1)
 	local newInstance2 = objClass.new(params2)
 
+	-- Remove steam effect from original before destroying
+	self:removeSteamEffect()
+
 	-- Destroy the original instance
 	if self.instance then
 		self.instance:Destroy()
@@ -392,6 +516,9 @@ end
 
 -- Cleanup the base object
 function BaseClass:cleanup()
+	-- Remove steam effect
+	self:removeSteamEffect()
+
 	if self.instance then
 		self.instance:Destroy()
 		self.instance = nil

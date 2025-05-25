@@ -9,6 +9,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local DragSystem = require(ReplicatedStorage.Shared.DragSystem)
 local UISystem = require(ReplicatedStorage.Shared.UISystem)
+local NotificationSystem = require(ReplicatedStorage.Shared.UILib.Shared.NotificationSystem)
 
 -- Check if we're running on client or server
 local isClient = RunService:IsClient()
@@ -168,12 +169,14 @@ function CombineSystem.startCombining(dough)
 	-- Validate that we have a dough object
 	if not dough or not dough.instance or not isDough(dough) then
 		print("Cannot combine: invalid dough object")
+		NotificationSystem.showError("Cannot combine: invalid dough object")
 		return
 	end
 
 	-- Verify that the dough is owned by the client
 	if not clientOwnsDough(dough) then
 		print("Cannot combine: you don't own this dough")
+		NotificationSystem.showError("Cannot combine: you don't own this dough")
 		return
 	end
 
@@ -187,6 +190,7 @@ function CombineSystem.startCombining(dough)
 
 	if doneness > 0 then
 		print("Cannot combine: dough has already started cooking (doneness > 0)")
+		NotificationSystem.showError("Cannot combine: dough has already started cooking")
 		return
 	end
 
@@ -252,8 +256,9 @@ function CombineSystem.startCombining(dough)
 	instructionText.Size = UDim2.new(1, -20, 1, -20)
 	instructionText.Position = UDim2.new(0, 10, 0, 10)
 	instructionText.BackgroundTransparency = 1
+	instructionText.TextXAlignment = Enum.TextXAlignment.Left
 	instructionText.Text =
-		"COMBINE MODE\n\nClick on doughs or drag to select multiple doughs\nPress ENTER to combine all selected doughs\nPress E to cancel"
+		"COMBINE MODE\n\nClick on doughs or drag to select multiple doughs\nPress ENTER to combine all selected doughs\nPress E to exit"
 	instructionText.TextColor3 = Color3.fromRGB(255, 255, 255)
 	instructionText.TextSize = 16
 	instructionText.Font = Enum.Font.GothamBold
@@ -503,12 +508,14 @@ function CombineSystem.startCombining(dough)
 		-- Make sure we have a target and at least one selected dough
 		if not targetDough or #selectedDoughs == 0 then
 			print("Nothing to combine")
+			NotificationSystem.showWarning("No doughs selected to combine")
 			return
 		end
 
 		-- Verify that the target dough is owned by the client
 		if not clientOwnsDough(targetDough) then
 			print("Cannot combine: target dough is not owned by you")
+			NotificationSystem.showError("Cannot combine: target dough is not owned by you")
 			exitCombineMode()
 			return
 		end
@@ -523,6 +530,7 @@ function CombineSystem.startCombining(dough)
 
 		if targetDoneness > 0 then
 			print("Cannot combine: target dough has already started cooking (doneness > 0)")
+			NotificationSystem.showError("Cannot combine: target dough has already started cooking")
 			exitCombineMode()
 			return
 		end
@@ -538,6 +546,7 @@ function CombineSystem.startCombining(dough)
 		local targetDoughId = targetDough.instance and targetDough.instance:GetAttribute("DoughId")
 		if not targetDoughId then
 			print("Cannot combine: target dough has no ID")
+			NotificationSystem.showError("Cannot combine: target dough has no ID")
 			exitCombineMode()
 			return
 		end
@@ -580,6 +589,7 @@ function CombineSystem.startCombining(dough)
 		-- Check if we have any doughs to combine
 		if #doughIds == 0 then
 			print("No valid doughs to combine after validation")
+			NotificationSystem.showWarning("No valid doughs to combine")
 			exitCombineMode()
 			return
 		end
@@ -592,6 +602,9 @@ function CombineSystem.startCombining(dough)
 
 		-- Immediately update the target dough size value locally for responsiveness
 		targetDough.sizeValue = totalSizeValue
+
+		-- Show success notification
+		NotificationSystem.showSuccess("Successfully combined " .. #doughIds .. " doughs!")
 
 		-- Exit combine mode
 		exitCombineMode()

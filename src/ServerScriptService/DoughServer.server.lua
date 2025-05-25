@@ -34,12 +34,21 @@ local instanceToObjectMap = {}
 -- Assign a unique ID to each dough
 local nextDoughId = 1
 
+-- Constants
+local MINIMUM_SPLIT_RATIO = 0.01 -- Minimum ratio for a split piece
+
+-- Helper function to send notification to client
+local function sendNotification(player, message, notificationType, duration)
+	DoughRemotes.ShowNotification:FireClient(player, message, notificationType, duration)
+end
+
 -- Function to adjust dough appearance based on flatten count and doneness
 local function adjustDoughAppearance(dough)
 	if not dough or not dough.instance then
 		return
 	end
 
+	-- Get current values
 	local flattenCount = dough.flattenCount or 0
 	local doneness = dough.doneness or 0
 
@@ -53,15 +62,14 @@ local function adjustDoughAppearance(dough)
 
 	-- Adjust size based on flatten count
 	if flattenCount > 0 then
-		-- Get original size before flattening
 		local originalSize = dough.size
 		local sizeValue = dough.sizeValue or 1
 
 		-- Calculate scale factor based on size value (for volume)
 		local scaleFactor = sizeValue ^ (1 / 3) -- Cube root for 3D scaling
 
-		-- Apply flatten effect (decrease Y, increase X and Z)
-		local flattenFactor = math.min(0.1 + (0.9 / (flattenCount + 1)), 1)
+		-- Calculate flattening effect (0 = no flattening, 3 = maximum flattening)
+		local flattenFactor = math.max(0.1, 1 - (flattenCount * 0.3)) -- At value 3, height is 10% of original
 		local spreadFactor = math.sqrt(1 / flattenFactor) -- Preserve volume
 
 		-- Calculate final size
@@ -191,6 +199,7 @@ DoughRemotes.SplitDough.OnServerEvent:Connect(function(player, doughId, sliceDat
 	-- Verify ownership
 	if not playerOwnsDough(player, doughId) then
 		warn("Server: Player", player.Name, "attempted to slice dough", doughId, "which they don't own")
+		sendNotification(player, "Cannot split: you don't own this dough", "error")
 		return
 	end
 
@@ -198,6 +207,25 @@ DoughRemotes.SplitDough.OnServerEvent:Connect(function(player, doughId, sliceDat
 	local dough = getServerDough(doughId)
 	if not dough then
 		warn("Server: Dough not found for slicing", doughId)
+		sendNotification(player, "Cannot split: dough not found", "error")
+		return
+	end
+
+	-- Validate slice data
+	if not sliceData or not sliceData.sizeValue1 or not sliceData.sizeValue2 then
+		warn("Server: Invalid slice data received from", player.Name)
+		sendNotification(player, "Cannot split: invalid split data", "error")
+		return
+	end
+
+	-- Check minimum split ratio validation
+	if sliceData.sizeValue1 < MINIMUM_SPLIT_RATIO or sliceData.sizeValue2 < MINIMUM_SPLIT_RATIO then
+		warn("Server: Split would result in pieces too small")
+		sendNotification(
+			player,
+			"Cannot split: would result in pieces too small (minimum: " .. MINIMUM_SPLIT_RATIO .. ")",
+			"error"
+		)
 		return
 	end
 
@@ -211,6 +239,20 @@ DoughRemotes.SplitDough.OnServerEvent:Connect(function(player, doughId, sliceDat
 
 	if doneness > 0 then
 		warn("Server: Cannot split dough with doneness > 0")
+		sendNotification(player, "Cannot split: dough has already started cooking", "error")
+		return
+	end
+
+	-- Validate that the sum of split values equals the original (with small tolerance for floating point)
+	local originalSizeValue = dough.sizeValue or 1
+	if dough.instance:FindFirstChild("SizeValue") then
+		originalSizeValue = dough.instance.SizeValue.Value
+	end
+
+	local splitSum = sliceData.sizeValue1 + sliceData.sizeValue2
+	if math.abs(splitSum - originalSizeValue) > 0.001 then
+		warn("Server: Split values don't match original size value")
+		sendNotification(player, "Cannot split: invalid split calculation", "error")
 		return
 	end
 
@@ -318,6 +360,9 @@ DoughRemotes.SplitDough.OnServerEvent:Connect(function(player, doughId, sliceDat
 	-- Notify the client about the sliced doughs
 	DoughRemotes.SplitDough:FireClient(player, doughId, doughId1, doughId2)
 
+	-- Send success notification
+	sendNotification(player, "Successfully split dough!", "success")
+
 	print("Server: Sliced dough", doughId, "into", doughId1, "and", doughId2, "with client-computed values")
 end)
 
@@ -332,6 +377,7 @@ DoughRemotes.CombineDoughs.OnServerEvent:Connect(function(player, targetDoughId,
 			targetDoughId,
 			"which they don't own"
 		)
+		sendNotification(player, "Cannot combine: you don't own the target dough", "error")
 		return
 	end
 
@@ -344,6 +390,7 @@ DoughRemotes.CombineDoughs.OnServerEvent:Connect(function(player, targetDoughId,
 			"attempted to combine doughs they don't own:",
 			table.concat(invalidDoughs, ", ")
 		)
+		sendNotification(player, "Cannot combine: you don't own some of the selected doughs", "error")
 		return
 	end
 
@@ -351,6 +398,13 @@ DoughRemotes.CombineDoughs.OnServerEvent:Connect(function(player, targetDoughId,
 	local targetDough = getServerDough(targetDoughId)
 	if not targetDough then
 		warn("Server: Target dough not found for combining", targetDoughId)
+		sendNotification(player, "Cannot combine: target dough not found", "error")
+		return
+	end
+
+	-- Check if we have any doughs to combine
+	if #doughsToRemoveIds == 0 then
+		sendNotification(player, "No doughs selected to combine", "warning")
 		return
 	end
 
@@ -436,33 +490,43 @@ end)
 DoughRemotes.SetFlattenValue.OnServerEvent:Connect(function(player, doughId, value)
 	-- Verify ownership
 	if not playerOwnsDough(player, doughId) then
-		warn(
-			"Server: Player",
-			player.Name,
-			"attempted to adjust flatten value of dough",
-			doughId,
-			"which they don't own"
-		)
+		warn("Server: Player", player.Name, "attempted to flatten dough", doughId, "which they don't own")
+		sendNotification(player, "Cannot flatten: you don't own this dough", "error")
 		return
 	end
 
 	-- Get the server-side dough
 	local dough = getServerDough(doughId)
 	if not dough then
-		warn("Server: Dough not found for flatten adjustment", doughId)
+		warn("Server: Dough not found for flattening", doughId)
+		sendNotification(player, "Cannot flatten: dough not found", "error")
 		return
 	end
 
-	-- Validate the value is within bounds
-	value = math.clamp(value, 0, 3)
+	-- Check doneness value before allowing flatten
+	local doneness = 0
+	if dough.instance and dough.instance:FindFirstChild("Doneness") then
+		doneness = dough.instance.Doneness.Value
+	elseif dough.doneness then
+		doneness = dough.doneness
+	end
 
-	-- Set the flatten value
+	if doneness > 0 then
+		warn("Server: Cannot flatten dough with doneness > 0")
+		sendNotification(player, "Cannot flatten: dough has already started cooking", "error")
+		return
+	end
+
+	-- Set the flatten value using the dough's method
 	dough:setFlattenValue(value)
 
-	-- Notify all clients
-	DoughRemotes.SetFlattenValue:FireAllClients(doughId, value)
+	-- Adjust appearance
+	adjustDoughAppearance(dough)
 
-	print("Server: Set flatten value of dough", doughId, "to", value)
+	-- Notify the client about the updated flatten value
+	DoughRemotes.SetFlattenValue:FireClient(player, doughId, value)
+
+	print("Server: Set flatten value for dough", doughId, "to", value)
 end)
 
 -- Handle dough position updates
@@ -483,8 +547,8 @@ DoughRemotes.UpdateDoughPosition.OnServerEvent:Connect(function(player, doughId,
 	-- Update the position
 	dough.instance.Position = position
 
-	-- Notify all other clients (except the one who moved it)
-	for _, otherPlayer in ipairs(Players:GetPlayers()) do
+	-- Notify other clients about the position update (excluding the sender)
+	for _, otherPlayer in pairs(Players:GetPlayers()) do
 		if otherPlayer ~= player then
 			DoughRemotes.UpdateDoughPosition:FireClient(otherPlayer, doughId, position)
 		end
@@ -496,6 +560,7 @@ DoughRemotes.DestroyDough.OnServerEvent:Connect(function(player, doughId)
 	-- Verify ownership
 	if not playerOwnsDough(player, doughId) then
 		warn("Server: Player", player.Name, "attempted to destroy dough", doughId, "which they don't own")
+		sendNotification(player, "Cannot destroy: you don't own this dough", "error")
 		return
 	end
 
@@ -503,6 +568,7 @@ DoughRemotes.DestroyDough.OnServerEvent:Connect(function(player, doughId)
 	local dough = getServerDough(doughId)
 	if not dough then
 		warn("Server: Dough not found for destruction", doughId)
+		sendNotification(player, "Cannot destroy: dough not found", "error")
 		return
 	end
 

@@ -20,6 +20,9 @@ end
 
 local DragSystem = {}
 
+-- Constants
+local MAX_DRAG_DISTANCE = 40 -- Maximum distance for dragging (same as click detector range)
+
 -- Variables
 local isDragging = false
 local draggedObject = nil
@@ -160,6 +163,17 @@ function DragSystem.cleanupDestroyedObjects()
 	return removedCount
 end
 
+-- Function to check if an object is within dragging range
+local function isWithinDragRange(objectPosition)
+	if not player or not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+		return false
+	end
+
+	local playerPosition = player.Character.HumanoidRootPart.Position
+	local distance = (objectPosition - playerPosition).Magnitude
+	return distance <= MAX_DRAG_DISTANCE
+end
+
 -- Function to handle mouse hover effect
 function DragSystem.updateHoverEffect()
 	-- Only run on client
@@ -178,15 +192,23 @@ function DragSystem.updateHoverEffect()
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Whitelist
 
-	-- Create a list of objects to check
+	-- Create a list of objects to check that are within range
 	local instances = {}
 	for _, obj in ipairs(trackedObjects) do
-		if obj.instance and obj.instance.Parent then
+		if obj.instance and obj.instance.Parent and isWithinDragRange(obj.instance.Position) then
 			table.insert(instances, obj.instance)
 		end
 	end
 
 	if #instances == 0 then
+		-- Clear previous highlight if no objects in range
+		if hoveredObject and hoveredObject ~= draggedObject then
+			local highlight = hoveredObject.instance:FindFirstChild("Highlight")
+			if highlight then
+				highlight.Enabled = false
+			end
+			hoveredObject = nil
+		end
 		return
 	end
 
@@ -209,7 +231,7 @@ function DragSystem.updateHoverEffect()
 
 		-- Use map for faster lookup instead of iterating
 		local obj = trackedObjectsMap[hitInstance]
-		if obj then
+		if obj and isWithinDragRange(obj.instance.Position) then
 			hoveredObject = obj
 			local highlight = hoveredObject.instance:FindFirstChild("Highlight")
 			if highlight and hoveredObject ~= draggedObject then
@@ -230,8 +252,8 @@ function DragSystem.onMouseDown(input)
 		return
 	end
 
-	-- If we're hovering over an object, start dragging it
-	if hoveredObject then
+	-- If we're hovering over an object and it's within range, start dragging it
+	if hoveredObject and isWithinDragRange(hoveredObject.instance.Position) then
 		isDragging = true
 		draggedObject = hoveredObject
 
@@ -258,8 +280,8 @@ function DragSystem.onMouseUp(input)
 	if isDragging and draggedObject then
 		isDragging = false
 
-		-- Re-enable highlight if still hovering
-		if draggedObject == hoveredObject then
+		-- Re-enable highlight if still hovering and within range
+		if draggedObject == hoveredObject and isWithinDragRange(draggedObject.instance.Position) then
 			local highlight = draggedObject.instance:FindFirstChild("Highlight")
 			if highlight then
 				highlight.Enabled = true
@@ -283,6 +305,14 @@ function DragSystem.onMouseMove(input)
 
 	-- If we're dragging, update position
 	if isDragging and draggedObject and draggedObject.instance then
+		-- Check if the object is still within dragging range
+		if not isWithinDragRange(draggedObject.instance.Position) then
+			-- Object is too far, stop dragging
+			isDragging = false
+			draggedObject = nil
+			return
+		end
+
 		-- Cast ray from mouse position to get the world position
 		local mousePos = UserInputService:GetMouseLocation()
 		local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
@@ -309,15 +339,22 @@ function DragSystem.onMouseMove(input)
 				hitPoint.Z
 			)
 
-			-- Get the dough ID from the instance attributes
-			local doughId = draggedObject.instance:GetAttribute("DoughId")
-			if doughId then
-				-- Update position immediately for responsive feel
-				draggedObject.instance.Position = newPosition
+			-- Check if the new position would still be within dragging range
+			if isWithinDragRange(newPosition) then
+				-- Get the dough ID from the instance attributes
+				local doughId = draggedObject.instance:GetAttribute("DoughId")
+				if doughId then
+					-- Update position immediately for responsive feel
+					draggedObject.instance.Position = newPosition
 
-				-- Fire the remote event to update on server
-				local DoughRemotes = require(ReplicatedStorage.Shared.DoughRemotes)
-				DoughRemotes.UpdateDoughPosition:FireServer(doughId, newPosition)
+					-- Fire the remote event to update on server
+					local DoughRemotes = require(ReplicatedStorage.Shared.DoughRemotes)
+					DoughRemotes.UpdateDoughPosition:FireServer(doughId, newPosition)
+				end
+			else
+				-- New position would be out of range, stop dragging
+				isDragging = false
+				draggedObject = nil
 			end
 		end
 	end

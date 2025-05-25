@@ -39,6 +39,7 @@ local DoughBase = require(ReplicatedStorage.Shared.DoughBase)
 local DragSystem = require(ReplicatedStorage.Shared.DragSystem)
 local UISystem = require(ReplicatedStorage.Shared.UISystem)
 local CombineSystem = require(ReplicatedStorage.Shared.CombineSystem)
+local NotificationSystem = require(ReplicatedStorage.Shared.UILib.Shared.NotificationSystem)
 
 -- Client-side dough tracking
 local clientDoughs = {}
@@ -70,6 +71,34 @@ local function setupClickDetector(dough)
 	end)
 
 	return clickDetector
+end
+
+-- Function to update dough doneness from instance values
+local function updateDoughFromInstance(dough)
+	if not dough or not dough.instance then
+		return
+	end
+
+	-- Update doneness from instance
+	local donenessValue = dough.instance:FindFirstChild("Doneness")
+	if donenessValue then
+		local newDoneness = donenessValue.Value
+		if newDoneness ~= dough.doneness then
+			dough:updateDoneness(newDoneness)
+		end
+	end
+
+	-- Update flatten count from instance
+	local flattenCountValue = dough.instance:FindFirstChild("FlattenCount")
+	if flattenCountValue then
+		dough.flattenCount = flattenCountValue.Value
+	end
+
+	-- Update size value from instance
+	local sizeValueObj = dough.instance:FindFirstChild("SizeValue")
+	if sizeValueObj then
+		dough.sizeValue = sizeValueObj.Value
+	end
 end
 
 -- Function to create dough through the server
@@ -117,6 +146,11 @@ DoughRemotes.CombineDoughs.OnClientEvent:Connect(function(targetDoughId, doughsT
 
 	-- Remove the combined doughs from tracking
 	for _, doughId in ipairs(doughsToRemoveIds) do
+		local dough = clientDoughs[doughId]
+		if dough then
+			-- Clean up steam effects before removing
+			dough:removeSteamEffect()
+		end
 		clientDoughs[doughId] = nil
 	end
 
@@ -142,10 +176,21 @@ DoughRemotes.UpdateDoughPosition.OnClientEvent:Connect(function(doughId, positio
 end)
 
 DoughRemotes.DestroyDough.OnClientEvent:Connect(function(doughId)
+	-- Clean up steam effects before removing
+	local dough = clientDoughs[doughId]
+	if dough then
+		dough:removeSteamEffect()
+	end
+
 	-- Remove the dough from tracking
 	clientDoughs[doughId] = nil
 
 	print("Client: Removed destroyed dough", doughId)
+end)
+
+-- Handle server-sent notifications
+DoughRemotes.ShowNotification.OnClientEvent:Connect(function(message, notificationType, duration)
+	NotificationSystem.showNotification(message, notificationType, duration)
 end)
 
 -- Create functions to expose to other scripts
@@ -190,6 +235,8 @@ local function ensureAllDoughsInteractive()
 			DragSystem.trackObject(dough)
 			-- Make sure it has a click detector
 			setupClickDetector(dough)
+			-- Update from instance values
+			updateDoughFromInstance(dough)
 		end
 	end
 end
@@ -207,6 +254,7 @@ function scanWorkspaceForDough()
 					position = child.Position,
 					sizeValue = child:FindFirstChild("SizeValue") and child.SizeValue.Value or 1,
 					flattenCount = child:FindFirstChild("FlattenCount") and child.FlattenCount.Value or 0,
+					doneness = child:FindFirstChild("Doneness") and child.Doneness.Value or 0,
 					instance = child, -- Provide the existing instance to prevent creating a new one
 				}
 
@@ -218,7 +266,29 @@ function scanWorkspaceForDough()
 				-- Make interactive
 				DragSystem.trackObject(dough)
 				setupClickDetector(dough)
+
+				-- Update steam effects based on current doneness
+				dough:updateSteamEffect()
 			end
+		end
+	end
+end
+
+-- Periodic update for steam effects and doneness tracking
+local function updateDoughEffects()
+	for doughId, dough in pairs(clientDoughs) do
+		if dough and dough.instance and dough.instance.Parent then
+			-- Update dough properties from instance
+			updateDoughFromInstance(dough)
+
+			-- Update steam effects
+			dough:updateSteamEffect()
+		else
+			-- Clean up invalid doughs
+			if dough then
+				dough:removeSteamEffect()
+			end
+			clientDoughs[doughId] = nil
 		end
 	end
 end
@@ -239,6 +309,14 @@ task.spawn(function()
 	while true do
 		task.wait(5) -- Scan every 5 seconds instead of 10
 		scanWorkspaceForDough()
+	end
+end)
+
+-- Start periodic steam effect updates
+task.spawn(function()
+	while true do
+		task.wait(1) -- Update steam effects every second
+		updateDoughEffects()
 	end
 end)
 

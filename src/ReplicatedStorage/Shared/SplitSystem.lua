@@ -8,6 +8,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 local DragSystem = require(ReplicatedStorage.Shared.DragSystem)
+local NotificationSystem = require(ReplicatedStorage.Shared.UILib.Shared.NotificationSystem)
 
 -- Check if we're running on client or server
 local isClient = RunService:IsClient()
@@ -27,6 +28,7 @@ local SplitSystem = {}
 
 -- Constants
 local MINIMUM_SPLIT_LENGTH_PERCENTAGE = 0.4 -- Require splits to go through at least 40% of the diameter
+local MINIMUM_SPLIT_RATIO = 0.01 -- Minimum ratio for a split piece
 
 -- Variables for split mode
 local isSplittingActive = false
@@ -43,6 +45,19 @@ local originalCameraSubject = nil
 local disabledClickDetectors = {} -- Store click detectors with their original distances
 local splitComplete = false -- Flag to prevent multiple split attempts
 
+-- Variables for split drawing
+local isDrawing = false
+local drawingPoints = {}
+local mouseIsDown = false
+
+-- Mouse event connections
+local mouseDown = nil
+local mouseUp = nil
+local mouseMove = nil
+
+-- Forward declaration of finalizeSplit function
+local finalizeSplit
+
 -- Function to start splitting the target object
 function SplitSystem.startSplitting(object, objectClassModule)
 	if not isClient then
@@ -54,6 +69,14 @@ function SplitSystem.startSplitting(object, objectClassModule)
 	-- Make sure we have the object and its class
 	if not object or not object.instance then
 		print("Cannot split: invalid object")
+		NotificationSystem.showError("Cannot split: invalid object")
+		return
+	end
+
+	-- Check if the object's size value is too small to split
+	local currentSizeValue = object.sizeValue or 1
+	if currentSizeValue <= MINIMUM_SPLIT_RATIO then
+		NotificationSystem.showError("Cannot split: object is too small (minimum size: " .. MINIMUM_SPLIT_RATIO .. ")")
 		return
 	end
 
@@ -162,11 +185,6 @@ function SplitSystem.startSplitting(object, objectClassModule)
 	instructionFrame.Parent = splitInstructions
 
 	splittingUI = splitInstructions
-
-	-- Variables for split drawing
-	local isDrawing = false
-	local drawingPoints = {}
-	local mouseIsDown = false
 
 	-- Create visual representation of a point
 	local function createPointVisual(position, color)
@@ -346,8 +364,122 @@ function SplitSystem.startSplitting(object, objectClassModule)
 		print("Exited split mode")
 	end
 
+	-- Function to connect input handlers (extracted for reuse)
+	local function connectInputHandlers()
+		-- Disconnect existing connections if any
+		if mouseDown then
+			mouseDown:Disconnect()
+			mouseDown = nil
+		end
+		if mouseUp then
+			mouseUp:Disconnect()
+			mouseUp = nil
+		end
+		if mouseMove then
+			mouseMove:Disconnect()
+			mouseMove = nil
+		end
+
+		-- Handle mouse button down for selection
+		mouseDown = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+			if gameProcessed then
+				return
+			end
+
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				-- Check if splitting is still active
+				if not isSplittingActive or splitComplete then
+					return
+				end
+
+				-- Project the mouse position to the object plane using GetMouseLocation for accuracy
+				local mousePos = UserInputService:GetMouseLocation()
+				local projectedPosition = projectToObjectPlane(mousePos)
+
+				if projectedPosition and isPointWithinObject(projectedPosition) then
+					-- Start drawing the split
+					isDrawing = true
+					mouseIsDown = true
+					splitStart = projectedPosition
+
+					-- Create a visual point where the split starts
+					createPointVisual(splitStart, Color3.fromRGB(0, 255, 0))
+				end
+			elseif input.KeyCode == Enum.KeyCode.E then
+				-- User pressed E to cancel splitting
+				exitSplitMode()
+			end
+		end)
+
+		-- Handle mouse button up for selection
+		mouseUp = UserInputService.InputEnded:Connect(function(input, gameProcessed)
+			if gameProcessed then
+				return
+			end
+
+			if input.UserInputType == Enum.UserInputType.MouseButton1 and mouseIsDown then
+				-- Check if splitting is still active
+				if not isSplittingActive or splitComplete then
+					return
+				end
+
+				-- End drawing the split
+				mouseIsDown = false
+				isDrawing = false
+
+				-- Only finalize the split if we have a valid end point
+				if splitEnd then
+					finalizeSplit()
+				else
+					-- No drag occurred (only green dot), clean up visuals and reset for retry
+					cleanupVisuals()
+					splitComplete = false
+					splitStart = nil
+					splitEnd = nil
+				end
+			end
+		end)
+
+		-- Handle mouse movement for selection
+		mouseMove = UserInputService.InputChanged:Connect(function(input, gameProcessed)
+			if gameProcessed then
+				return
+			end
+
+			if input.UserInputType == Enum.UserInputType.MouseMovement and isDrawing then
+				-- Check if splitting is still active
+				if not isSplittingActive or splitComplete then
+					return
+				end
+
+				-- Project the mouse position to the object plane using GetMouseLocation for accuracy
+				local mousePos = UserInputService:GetMouseLocation()
+				local projectedPosition = projectToObjectPlane(mousePos)
+
+				if projectedPosition then
+					-- Update the split end point
+					splitEnd = projectedPosition
+
+					-- Clear existing visuals (except the start point)
+					for i = #splitVisuals, 2, -1 do
+						splitVisuals[i]:Destroy()
+						table.remove(splitVisuals, i)
+					end
+
+					-- Create a visual point where the split currently ends
+					createPointVisual(splitEnd, Color3.fromRGB(255, 0, 0))
+
+					-- Draw a line connecting the points
+					if splitStart then
+						createLineSegment(splitStart, splitEnd)
+					end
+				end
+			end
+		end)
+	end
+
 	-- Function to finalize and perform the split
-	local function finalizeSplit()
+	finalizeSplit = function()
 		-- Prevent multiple split attempts
 		if splitComplete then
 			print("Split already completed, ignoring additional split attempt")
@@ -357,14 +489,24 @@ function SplitSystem.startSplitting(object, objectClassModule)
 		-- Make sure we have valid target object
 		if not targetObject or not targetObject.instance then
 			print("Invalid split: missing target object or instance")
-			exitSplitMode()
+			NotificationSystem.showError("Invalid split: missing target object")
+			-- Clear visuals and reset split complete flag to allow retry
+			cleanupVisuals()
+			splitComplete = false
+			splitStart = nil
+			splitEnd = nil
 			return
 		end
 
 		-- Make sure we have valid start and end points for the split
 		if not splitStart or not splitEnd then
 			print("Invalid split: missing start or end point")
-			exitSplitMode()
+			NotificationSystem.showError("Invalid split: incomplete split line")
+			-- Clear visuals and reset split complete flag to allow retry
+			cleanupVisuals()
+			splitComplete = false
+			splitStart = nil
+			splitEnd = nil
 			return
 		end
 
@@ -380,7 +522,14 @@ function SplitSystem.startSplitting(object, objectClassModule)
 			print(
 				"Split too short, must be at least " .. (MINIMUM_SPLIT_LENGTH_PERCENTAGE * 100) .. "% of the diameter"
 			)
-			exitSplitMode()
+			NotificationSystem.showError(
+				"Split too short, must be at least " .. (MINIMUM_SPLIT_LENGTH_PERCENTAGE * 100) .. "% of the diameter"
+			)
+			-- Clear visuals and reset split complete flag to allow retry
+			cleanupVisuals()
+			splitComplete = false
+			splitStart = nil
+			splitEnd = nil
 			return
 		end
 
@@ -388,7 +537,12 @@ function SplitSystem.startSplitting(object, objectClassModule)
 		local doughId = targetObject.instance:GetAttribute("DoughId")
 		if not doughId then
 			warn("Cannot split: missing DoughId attribute")
-			exitSplitMode()
+			NotificationSystem.showError("Cannot split: missing object ID")
+			-- Clear visuals and reset split complete flag to allow retry
+			cleanupVisuals()
+			splitComplete = false
+			splitStart = nil
+			splitEnd = nil
 			return
 		end
 
@@ -452,6 +606,52 @@ function SplitSystem.startSplitting(object, objectClassModule)
 			sizeValue2 = sizeValue * largerSideRatio
 		end
 
+		-- Check minimum split ratio and adjust if necessary
+		if sizeValue1 < MINIMUM_SPLIT_RATIO or sizeValue2 < MINIMUM_SPLIT_RATIO then
+			-- Determine which piece is too small
+			if sizeValue1 < MINIMUM_SPLIT_RATIO then
+				-- Adjust sizeValue1 to minimum and reduce sizeValue2 accordingly
+				local deficit = MINIMUM_SPLIT_RATIO - sizeValue1
+				sizeValue1 = MINIMUM_SPLIT_RATIO
+				sizeValue2 = sizeValue2 - deficit
+
+				-- Check if sizeValue2 is still valid
+				if sizeValue2 < MINIMUM_SPLIT_RATIO then
+					NotificationSystem.showError(
+						"Cannot split: would result in pieces too small (minimum: " .. MINIMUM_SPLIT_RATIO .. ")"
+					)
+					-- Clear visuals and reset split complete flag to allow retry
+					cleanupVisuals()
+					splitComplete = false
+					splitStart = nil
+					splitEnd = nil
+					-- Reconnect input handlers to allow retry
+					connectInputHandlers()
+					return
+				end
+			elseif sizeValue2 < MINIMUM_SPLIT_RATIO then
+				-- Adjust sizeValue2 to minimum and reduce sizeValue1 accordingly
+				local deficit = MINIMUM_SPLIT_RATIO - sizeValue2
+				sizeValue2 = MINIMUM_SPLIT_RATIO
+				sizeValue1 = sizeValue1 - deficit
+
+				-- Check if sizeValue1 is still valid
+				if sizeValue1 < MINIMUM_SPLIT_RATIO then
+					NotificationSystem.showError(
+						"Cannot split: would result in pieces too small (minimum: " .. MINIMUM_SPLIT_RATIO .. ")"
+					)
+					-- Clear visuals and reset split complete flag to allow retry
+					cleanupVisuals()
+					splitComplete = false
+					splitStart = nil
+					splitEnd = nil
+					-- Reconnect input handlers to allow retry
+					connectInputHandlers()
+					return
+				end
+			end
+		end
+
 		-- Calculate positions for the two new pieces
 		local offsetRatio1 = sizeValue1 / sizeValue
 		local offsetRatio2 = sizeValue2 / sizeValue
@@ -512,98 +712,8 @@ function SplitSystem.startSplitting(object, objectClassModule)
 		DoughRemotes.SplitDough:FireServer(localTargetObjectId, splitData)
 	end
 
-	-- Handle mouse button down
-	local mouseDown = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed then
-			return
-		end
-
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			-- Check if splitting is still active
-			if not isSplittingActive or splitComplete then
-				return
-			end
-
-			-- Project the mouse position to the object plane using GetMouseLocation for accuracy
-			local mousePos = UserInputService:GetMouseLocation()
-			local projectedPosition = projectToObjectPlane(mousePos)
-
-			if projectedPosition and isPointWithinObject(projectedPosition) then
-				-- Start drawing the split
-				isDrawing = true
-				mouseIsDown = true
-				splitStart = projectedPosition
-
-				-- Create a visual point where the split starts
-				createPointVisual(splitStart, Color3.fromRGB(0, 255, 0))
-			end
-		elseif input.KeyCode == Enum.KeyCode.E then
-			-- User pressed E to cancel splitting
-			exitSplitMode()
-		end
-	end)
-
-	-- Handle mouse button up
-	local mouseUp = UserInputService.InputEnded:Connect(function(input, gameProcessed)
-		if gameProcessed then
-			return
-		end
-
-		if input.UserInputType == Enum.UserInputType.MouseButton1 and mouseIsDown then
-			-- Check if splitting is still active
-			if not isSplittingActive or splitComplete then
-				return
-			end
-
-			-- End drawing the split
-			mouseIsDown = false
-			isDrawing = false
-
-			-- Only finalize the split if we have a valid end point
-			if splitEnd then
-				finalizeSplit()
-			else
-				exitSplitMode()
-			end
-		end
-	end)
-
-	-- Handle mouse movement
-	local mouseMove = UserInputService.InputChanged:Connect(function(input, gameProcessed)
-		if gameProcessed then
-			return
-		end
-
-		if input.UserInputType == Enum.UserInputType.MouseMovement and isDrawing then
-			-- Check if splitting is still active
-			if not isSplittingActive or splitComplete then
-				return
-			end
-
-			-- Project the mouse position to the object plane using GetMouseLocation for accuracy
-			local mousePos = UserInputService:GetMouseLocation()
-			local projectedPosition = projectToObjectPlane(mousePos)
-
-			if projectedPosition then
-				-- Update the split end point
-				splitEnd = projectedPosition
-
-				-- Clear existing visuals (except the start point)
-				for i = #splitVisuals, 2, -1 do
-					splitVisuals[i]:Destroy()
-					table.remove(splitVisuals, i)
-				end
-
-				-- Create a visual point where the split currently ends
-				createPointVisual(splitEnd, Color3.fromRGB(255, 0, 0))
-
-				-- Draw a line connecting the points
-				if splitStart then
-					createLineSegment(splitStart, splitEnd)
-				end
-			end
-		end
-	end)
+	-- Connect input events using the extracted function
+	connectInputHandlers()
 
 	-- Clean up connections and visuals when done
 	local cleanupConnections = function()
