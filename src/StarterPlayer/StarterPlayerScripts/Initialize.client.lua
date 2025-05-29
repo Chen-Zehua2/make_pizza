@@ -14,6 +14,7 @@ local CombineSystem = require(ReplicatedStorage.Shared.CombineSystem)
 local DoughClientModule = require(ReplicatedStorage.Shared.DoughClientModule)
 local DoughRemotes = require(ReplicatedStorage.Shared.DoughRemotes)
 local BakingSystem = require(ReplicatedStorage.Shared.BakingSystem)
+local ProfileSystem = require(ReplicatedStorage.Shared.ProfileSystem)
 
 print("Roact loaded successfully:", Roact ~= nil)
 
@@ -138,6 +139,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if not clickedOnUI and UISystem.isUIOpen() then
 			UISystem.closeUI()
 		end
+	elseif input.KeyCode == Enum.KeyCode.P then
+		-- Toggle profile with P key
+		ProfileSystem.toggleProfile()
+	elseif input.KeyCode == Enum.KeyCode.R then
+		-- Open recipe book with R key
+		UISystem.showRecipeBook()
+	elseif input.KeyCode == Enum.KeyCode.B then
+		-- Open badges with B key
+		UISystem.showBadges()
 	end
 end)
 
@@ -196,6 +206,10 @@ local function init()
 	end)
 
 	print("Pizza making game initialized successfully!")
+
+	-- Show help notification with key bindings
+	task.wait(2) -- Wait a bit before showing the help
+	UISystem.showNotification("Press P for Profile, R for Recipes, B for Badges", Color3.fromRGB(0, 170, 0))
 end
 
 -- Start the game

@@ -794,6 +794,57 @@ function UISystem.showNotification(message, color)
 	end)
 end
 
--- Recipe Book UI has been moved to RecipeBookUI.lua Roact component
+-- Function to show standalone recipe book
+function UISystem.showRecipeBook()
+	-- Only run on client
+	if not isClient then
+		return
+	end
+
+	-- Clean up previous UI if it exists
+	if currentUI then
+		UISystem.closeUI()
+	end
+
+	-- Create a Roact component for the recipe book UI
+	local RecipeBookUI = require(ReplicatedStorage.Shared.UILib.RecipeBookUI)
+	local handle
+	handle = Roact.mount(
+		Roact.createElement(RecipeBookUI, {
+			isOpen = true,
+			onClose = function()
+				Roact.unmount(handle)
+			end,
+		}),
+		PlayerGui
+	)
+end
+
+-- Function to show standalone badges UI
+function UISystem.showBadges()
+	-- Only run on client
+	if not isClient then
+		return
+	end
+
+	-- Clean up previous UI if it exists
+	if currentUI then
+		UISystem.closeUI()
+	end
+
+	-- Create a Roact component for the badges UI
+	local BadgesUI = require(ReplicatedStorage.Shared.UILib.BadgesUI)
+	local handle
+	handle = Roact.mount(
+		Roact.createElement(BadgesUI, {
+			isOpen = true,
+			player = player,
+			onClose = function()
+				Roact.unmount(handle)
+			end,
+		}),
+		PlayerGui
+	)
+end
 
 return UISystem
