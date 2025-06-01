@@ -28,9 +28,6 @@ if not isClient then
 		flattenDough = function()
 			warn("DoughClientModule can only be used on the client")
 		end,
-		updateDoughPosition = function()
-			warn("DoughClientModule can only be used on the client")
-		end,
 		destroyDough = function()
 			warn("DoughClientModule can only be used on the client")
 		end,
@@ -88,10 +85,6 @@ local DoughClientModule = {
 
 	flattenDough = function(doughId, amount)
 		return invokeClientFunction("FlattenDough", doughId, amount)
-	end,
-
-	updateDoughPosition = function(doughId, position)
-		return invokeClientFunction("UpdateDoughPosition", doughId, position)
 	end,
 
 	destroyDough = function(doughId)

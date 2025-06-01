@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
 
 -- Check if we're running on client or server
 local isClient = RunService:IsClient()
@@ -19,6 +20,7 @@ local DEFAULT_BASE_SIZE_VALUE = 1 -- Default base "size" property (for splitting
 local PERFECT_DONENESS = 600 -- Perfect cooking level
 local BURNT_DONENESS = 900 -- Burnt threshold (50% over perfect)
 local STEAM_DONENESS_THRESHOLD = 400 -- Doneness level at which steam effects start
+local MAX_GRAB_DISTANCE = 20 -- Maximum distance to grab parts (20 studs)
 
 -- Constructor for a new base object
 function BaseClass.new(params)
@@ -88,6 +90,46 @@ function BaseClass.new(params)
 	return self
 end
 
+-- Helper function to check if a player owns this object
+function BaseClass:isOwnedBy(player)
+	if not self.instance or not player then
+		return false
+	end
+
+	local creatorId = self.instance:GetAttribute("CreatorId")
+	return creatorId == player.UserId
+end
+
+-- Helper function to set network ownership to the owner player
+function BaseClass:setNetworkOwnership()
+	if not isServer or not self.instance then
+		return
+	end
+
+	local creatorId = self.instance:GetAttribute("CreatorId")
+	if not creatorId then
+		return
+	end
+
+	-- Find the player who owns this object
+	local ownerPlayer = nil
+	for _, player in pairs(Players:GetPlayers()) do
+		if player.UserId == creatorId then
+			ownerPlayer = player
+			break
+		end
+	end
+
+	-- Set network ownership to the owner player
+	if ownerPlayer then
+		self.instance:SetNetworkOwner(ownerPlayer)
+		print("Set network ownership of", self.name, "to", ownerPlayer.Name)
+	else
+		-- If owner is not found, set to nil (server ownership)
+		self.instance:SetNetworkOwner(nil)
+	end
+end
+
 -- Create the physical instance of the base
 function BaseClass:create()
 	-- Only server should create actual instances
@@ -101,10 +143,11 @@ function BaseClass:create()
 	part.Name = self.name
 	part.Size = self.size
 	part.Position = self.position
-	part.Anchored = true
-	part.CanCollide = false -- Disable collision for baking purposes
+	part.Anchored = false -- Enable physics
+	part.CanCollide = true -- Enable collision for physics
 	part.Material = self.material
 	part.Color = self.color
+	part.Shape = Enum.PartType.Ball -- Use ball shape for better physics
 
 	-- Create a mesh to make it look more rounded
 	local mesh = Instance.new("SpecialMesh")
@@ -121,6 +164,71 @@ function BaseClass:create()
 	highlight.Enabled = false
 	highlight.Parent = part
 	highlight.Name = "Highlight"
+
+	-- Add DragDetector for physics-based dragging
+	local dragDetector = Instance.new("DragDetector")
+	dragDetector.MaxActivationDistance = MAX_GRAB_DISTANCE
+	dragDetector.DragStyle = Enum.DragDetectorDragStyle.TranslatePlane
+	dragDetector.ResponseStyle = Enum.DragDetectorResponseStyle.Physical
+	dragDetector.Parent = part
+
+	-- Create mover constraint for smooth dragging
+	local mover = Instance.new("AlignPosition")
+	mover.Mode = Enum.PositionAlignmentMode.OneAttachment
+	mover.Responsiveness = 10 -- Smooth but responsive movement
+	mover.MaxForce = 10000 -- Strong enough to move the dough
+	mover.Parent = part
+	mover.Name = "DragMover"
+
+	-- Create attachment for the mover
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "DragAttachment"
+	attachment.Parent = part
+	mover.Attachment0 = attachment
+
+	-- Set up drag detector events
+	dragDetector.DragStart:Connect(function(player, raycastResult)
+		-- Check ownership
+		if not self:isOwnedBy(player) then
+			return -- Don't allow dragging if not owned by player
+		end
+
+		-- Set network ownership to the dragging player
+		part:SetNetworkOwner(player)
+
+		-- Enable the mover
+		mover.Enabled = true
+		print(player.Name, "started dragging", self.name)
+	end)
+
+	dragDetector.DragContinue:Connect(function(player, raycastResult, raycastParams)
+		-- Check ownership
+		if not self:isOwnedBy(player) then
+			mover.Enabled = false
+			return
+		end
+
+		-- Update the target position for the mover
+		if raycastResult and raycastResult.Position then
+			-- Adjust position to account for part size (keep bottom of part on ground)
+			local adjustedPosition = Vector3.new(
+				raycastResult.Position.X,
+				raycastResult.Position.Y + (part.Size.Y / 2),
+				raycastResult.Position.Z
+			)
+			mover.Position = adjustedPosition
+		end
+	end)
+
+	dragDetector.DragEnd:Connect(function(player, raycastResult)
+		-- Disable the mover
+		mover.Enabled = false
+
+		-- Reset network ownership to the owner
+		self:setNetworkOwnership()
+
+		print(player.Name, "stopped dragging", self.name)
+	end)
 
 	-- Add size value (for splitting calculations)
 	local sizeValueObj = Instance.new("NumberValue")
@@ -152,12 +260,16 @@ function BaseClass:create()
 
 	-- Make it clickable
 	local clickDetector = Instance.new("ClickDetector")
+	clickDetector.MaxActivationDistance = MAX_GRAB_DISTANCE
 	clickDetector.Parent = part
 
 	part.Parent = Workspace
 
 	-- Store the instance
 	self.instance = part
+
+	-- Set initial network ownership
+	self:setNetworkOwnership()
 
 	return part
 end

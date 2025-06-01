@@ -36,7 +36,6 @@ end
 -- Load modules
 local BaseClass = require(ReplicatedStorage.Shared.BaseClass)
 local DoughBase = require(ReplicatedStorage.Shared.DoughBase)
-local DragSystem = require(ReplicatedStorage.Shared.DragSystem)
 local UISystem = require(ReplicatedStorage.Shared.UISystem)
 local CombineSystem = require(ReplicatedStorage.Shared.CombineSystem)
 local NotificationSystem = require(ReplicatedStorage.Shared.UILib.Shared.NotificationSystem)
@@ -167,14 +166,6 @@ DoughRemotes.SetFlattenValue.OnClientEvent:Connect(function(doughId, value)
 	print("Client: Updated flatten value for dough", doughId, "to", value)
 end)
 
-DoughRemotes.UpdateDoughPosition.OnClientEvent:Connect(function(doughId, position)
-	-- Update the position of the dough if it's from another client
-	local dough = clientDoughs[doughId]
-	if dough and dough.instance then
-		dough.instance.Position = position
-	end
-end)
-
 DoughRemotes.DestroyDough.OnClientEvent:Connect(function(doughId)
 	-- Clean up steam effects before removing
 	local dough = clientDoughs[doughId]
@@ -219,10 +210,6 @@ local function setFlattenValue(doughId, value)
 	DoughRemotes.SetFlattenValue:FireServer(doughId, value)
 end
 
-local function updateDoughPosition(doughId, position)
-	DoughRemotes.UpdateDoughPosition:FireServer(doughId, position)
-end
-
 local function destroyDough(doughId)
 	DoughRemotes.DestroyDough:FireServer(doughId)
 end
@@ -231,8 +218,6 @@ end
 local function ensureAllDoughsInteractive()
 	for doughId, dough in pairs(clientDoughs) do
 		if dough and dough.instance then
-			-- Make sure it's tracked for dragging
-			DragSystem.trackObject(dough)
 			-- Make sure it has a click detector
 			setupClickDetector(dough)
 			-- Update from instance values
@@ -264,7 +249,6 @@ function scanWorkspaceForDough()
 				clientDoughs[doughId] = dough
 
 				-- Make interactive
-				DragSystem.trackObject(dough)
 				setupClickDetector(dough)
 
 				-- Update steam effects based on current doneness
@@ -355,11 +339,6 @@ local setFlattenValueBindable = Instance.new("BindableFunction")
 setFlattenValueBindable.Name = "SetFlattenValue"
 setFlattenValueBindable.OnInvoke = setFlattenValue
 setFlattenValueBindable.Parent = clientFolder
-
-local updateDoughPositionBindable = Instance.new("BindableFunction")
-updateDoughPositionBindable.Name = "UpdateDoughPosition"
-updateDoughPositionBindable.OnInvoke = updateDoughPosition
-updateDoughPositionBindable.Parent = clientFolder
 
 local destroyDoughBindable = Instance.new("BindableFunction")
 destroyDoughBindable.Name = "DestroyDough"

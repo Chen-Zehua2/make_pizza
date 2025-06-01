@@ -33,7 +33,6 @@ DoughRemotes.CreateDough = getRemoteEvent("CreateDough")
 DoughRemotes.SplitDough = getRemoteEvent("SplitDough")
 DoughRemotes.CombineDoughs = getRemoteEvent("CombineDoughs")
 DoughRemotes.SetFlattenValue = getRemoteEvent("SetFlattenValue")
-DoughRemotes.UpdateDoughPosition = getRemoteEvent("UpdateDoughPosition")
 DoughRemotes.DestroyDough = getRemoteEvent("DestroyDough")
 DoughRemotes.ShowNotification = getRemoteEvent("ShowNotification")
 

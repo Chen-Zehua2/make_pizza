@@ -529,32 +529,6 @@ DoughRemotes.SetFlattenValue.OnServerEvent:Connect(function(player, doughId, val
 	print("Server: Set flatten value for dough", doughId, "to", value)
 end)
 
--- Handle dough position updates
-DoughRemotes.UpdateDoughPosition.OnServerEvent:Connect(function(player, doughId, position)
-	-- Verify ownership
-	if not playerOwnsDough(player, doughId) then
-		warn("Server: Player", player.Name, "attempted to move dough", doughId, "which they don't own")
-		return
-	end
-
-	-- Get the server-side dough
-	local dough = getServerDough(doughId)
-	if not dough then
-		warn("Server: Dough not found for position update", doughId)
-		return
-	end
-
-	-- Update the position
-	dough.instance.Position = position
-
-	-- Notify other clients about the position update (excluding the sender)
-	for _, otherPlayer in pairs(Players:GetPlayers()) do
-		if otherPlayer ~= player then
-			DoughRemotes.UpdateDoughPosition:FireClient(otherPlayer, doughId, position)
-		end
-	end
-end)
-
 -- Handle dough destruction
 DoughRemotes.DestroyDough.OnServerEvent:Connect(function(player, doughId)
 	-- Verify ownership

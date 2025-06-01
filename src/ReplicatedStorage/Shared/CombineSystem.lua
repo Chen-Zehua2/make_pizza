@@ -94,11 +94,21 @@ end
 -- Function to get all doughs owned by the client
 local function getClientOwnedDoughs()
 	local ownedDoughs = {}
-	local trackedObjects = DragSystem.getTrackedObjects()
 
-	for _, obj in ipairs(trackedObjects) do
-		if obj and obj.instance and isDough(obj) and clientOwnsDough(obj) then
-			table.insert(ownedDoughs, obj)
+	-- Scan workspace for dough objects since we no longer use DragSystem
+	for _, child in pairs(workspace:GetChildren()) do
+		if child:IsA("Part") or child:IsA("MeshPart") then
+			local doughId = child:GetAttribute("DoughId")
+			if doughId and child:GetAttribute("CreatorId") == player.UserId then
+				-- Create a simple object wrapper for compatibility
+				local doughObj = {
+					instance = child,
+					name = child.Name,
+					sizeValue = child:FindFirstChild("SizeValue") and child.SizeValue.Value or 1,
+					doneness = child:FindFirstChild("Doneness") and child.Doneness.Value or 0,
+				}
+				table.insert(ownedDoughs, doughObj)
+			end
 		end
 	end
 
@@ -201,24 +211,38 @@ function CombineSystem.startCombining(dough)
 	isCombineActive = true
 
 	-- Pre-fetch all dough objects for faster selection
-	local trackedObjects = DragSystem.getTrackedObjects()
 	local allDoughObjects = {}
-	for _, obj in ipairs(trackedObjects) do
-		if obj and obj.instance and isDough(obj) and obj ~= targetDough then
-			table.insert(allDoughObjects, obj)
+	for _, child in pairs(workspace:GetChildren()) do
+		if child:IsA("Part") or child:IsA("MeshPart") then
+			local doughId = child:GetAttribute("DoughId")
+			if doughId and child ~= targetDough.instance then
+				-- Create a simple object wrapper for compatibility
+				local doughObj = {
+					instance = child,
+					name = child.Name,
+					sizeValue = child:FindFirstChild("SizeValue") and child.SizeValue.Value or 1,
+					doneness = child:FindFirstChild("Doneness") and child.Doneness.Value or 0,
+				}
+				if isDough(doughObj) then
+					table.insert(allDoughObjects, doughObj)
+				end
+			end
 		end
 	end
 
 	-- Disable all click detectors to prevent UI from showing
 	disabledClickDetectors = {}
-	for _, obj in ipairs(trackedObjects) do
-		if obj and obj.instance then
-			local clickDetector = obj.instance:FindFirstChild("ClickDetector")
-			if clickDetector and clickDetector.MaxActivationDistance > 0 then
-				-- Store the original distance to restore later
-				disabledClickDetectors[clickDetector] = clickDetector.MaxActivationDistance
-				-- Set to 0 to disable click detection
-				clickDetector.MaxActivationDistance = 0
+	for _, child in pairs(workspace:GetChildren()) do
+		if child:IsA("Part") or child:IsA("MeshPart") then
+			local doughId = child:GetAttribute("DoughId")
+			if doughId then
+				local clickDetector = child:FindFirstChild("ClickDetector")
+				if clickDetector and clickDetector.MaxActivationDistance > 0 then
+					-- Store the original distance to restore later
+					disabledClickDetectors[clickDetector] = clickDetector.MaxActivationDistance
+					-- Set to 0 to disable click detection
+					clickDetector.MaxActivationDistance = 0
+				end
 			end
 		end
 	end
@@ -402,8 +426,7 @@ function CombineSystem.startCombining(dough)
 		-- Track dough IDs to prevent duplicates
 		local processedDoughIds = {}
 
-		-- Get all tracked objects from the drag system
-		local trackedObjects = DragSystem.getTrackedObjects()
+		-- Get all dough objects from workspace instead of DragSystem
 		local selectedCount = 0
 
 		-- Create a camera-based selection filter
@@ -424,41 +447,55 @@ function CombineSystem.startCombining(dough)
 
 		print("Starting box selection with box coordinates:", x1, y1, "to", x2, y2)
 
-		-- Process all objects at once instead of nested loops
-		for _, obj in ipairs(trackedObjects) do
-			-- Skip invalid objects
-			if not obj or not obj.instance or not obj.instance.Parent then
-				continue
-			end
+		-- Process all dough objects in workspace
+		for _, child in pairs(workspace:GetChildren()) do
+			if child:IsA("Part") or child:IsA("MeshPart") then
+				local doughId = child:GetAttribute("DoughId")
+				if not doughId then
+					continue
+				end
 
-			-- Skip target dough and non-client owned doughs
-			if obj == targetDough or not isDough(obj) or not clientOwnsDough(obj) then
-				continue
-			end
+				-- Create object wrapper for compatibility
+				local obj = {
+					instance = child,
+					name = child.Name,
+					sizeValue = child:FindFirstChild("SizeValue") and child.SizeValue.Value or 1,
+					doneness = child:FindFirstChild("Doneness") and child.Doneness.Value or 0,
+				}
 
-			-- Get the dough ID to prevent duplicates
-			local doughId = obj.instance:GetAttribute("DoughId")
-			if not doughId or processedDoughIds[doughId] then
-				continue
-			end
+				-- Skip invalid objects
+				if not obj or not obj.instance or not obj.instance.Parent then
+					continue
+				end
 
-			-- Mark this dough ID as processed
-			processedDoughIds[doughId] = true
+				-- Skip target dough and non-client owned doughs
+				if obj.instance == targetDough.instance or not isDough(obj) or not clientOwnsDough(obj) then
+					continue
+				end
 
-			-- Get screen position (with caching)
-			local screenPos = getScreenPosition(obj)
-			if not screenPos or screenPos.Z <= 0 then
-				continue
-			end
+				-- Get the dough ID to prevent duplicates
+				if processedDoughIds[doughId] then
+					continue
+				end
 
-			-- Check if the object is within the selection box
-			if screenPos.X >= x1 and screenPos.X <= x2 and screenPos.Y >= y1 and screenPos.Y <= y2 then
-				-- Add to selectedDoughs array
-				table.insert(selectedDoughs, obj)
-				selectedCount = selectedCount + 1
+				-- Mark this dough ID as processed
+				processedDoughIds[doughId] = true
 
-				-- Highlight the dough
-				highlightDough(obj)
+				-- Get screen position (with caching)
+				local screenPos = getScreenPosition(obj)
+				if not screenPos or screenPos.Z <= 0 then
+					continue
+				end
+
+				-- Check if the object is within the selection box
+				if screenPos.X >= x1 and screenPos.X <= x2 and screenPos.Y >= y1 and screenPos.Y <= y2 then
+					-- Add to selectedDoughs array
+					table.insert(selectedDoughs, obj)
+					selectedCount = selectedCount + 1
+
+					-- Highlight the dough
+					highlightDough(obj)
+				end
 			end
 		end
 
@@ -473,27 +510,41 @@ function CombineSystem.startCombining(dough)
 		local result = {}
 		local processedIds = {}
 
-		for _, obj in ipairs(DragSystem.getTrackedObjects()) do
-			-- Skip invalid objects, the target, and non-client owned
-			if not obj or not obj.instance or not obj.instance.Parent then
-				continue
+		for _, child in pairs(workspace:GetChildren()) do
+			if child:IsA("Part") or child:IsA("MeshPart") then
+				local doughId = child:GetAttribute("DoughId")
+				if not doughId then
+					continue
+				end
+
+				-- Create object wrapper for compatibility
+				local obj = {
+					instance = child,
+					name = child.Name,
+					sizeValue = child:FindFirstChild("SizeValue") and child.SizeValue.Value or 1,
+					doneness = child:FindFirstChild("Doneness") and child.Doneness.Value or 0,
+				}
+
+				-- Skip invalid objects, the target, and non-client owned
+				if not obj or not obj.instance or not obj.instance.Parent then
+					continue
+				end
+
+				if obj.instance == targetDough.instance or not isDough(obj) or not clientOwnsDough(obj) then
+					continue
+				end
+
+				-- Get the dough ID
+				if processedIds[doughId] then
+					continue
+				end
+
+				-- Mark as processed
+				processedIds[doughId] = true
+
+				-- Add to instances for raycast
+				table.insert(result, obj.instance)
 			end
-
-			if obj == targetDough or not isDough(obj) or not clientOwnsDough(obj) then
-				continue
-			end
-
-			-- Get the dough ID
-			local doughId = obj.instance:GetAttribute("DoughId")
-			if not doughId or processedIds[doughId] then
-				continue
-			end
-
-			-- Mark as processed
-			processedIds[doughId] = true
-
-			-- Add to instances for raycast
-			table.insert(result, obj.instance)
 		end
 
 		return result
